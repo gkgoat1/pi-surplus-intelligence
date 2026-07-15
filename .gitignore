@@ -1,0 +1,5 @@
+# Local pi configuration and generated state
+.pi/
+node_modules/
+*.log
+.DS_Store
