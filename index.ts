@@ -55,7 +55,7 @@ function mapSurplusModel(model: unknown): ModelConfig | undefined {
 	return {
 		id: m.id,
 		name: typeof m.name === "string" && m.name ? m.name : m.id,
-		reasoning: false,
+		reasoning: m.reasoning ? true : false,
 		input,
 		cost: {
 			input: parseCost(m.pricing?.prompt),
@@ -76,66 +76,6 @@ function mapSurplusModel(model: unknown): ModelConfig | undefined {
 
 function fallbackModels(): ModelConfig[] {
 	return [
-		{
-			id: "kimi-k2.7-code",
-			name: "Kimi K2.7 Code",
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0.68, output: 3.41, cacheRead: 0.144, cacheWrite: 0 },
-			contextWindow: 256_000,
-			maxTokens: 32_768,
-			compat: { maxTokensField: "max_tokens", supportsDeveloperRole: false, supportsStrictMode: false, supportsUsageInStreaming: true },
-		},
-		{
-			id: "kimi-k2.5",
-			name: "Kimi K2.5",
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0.56, output: 3.5, cacheRead: 0.11, cacheWrite: 0 },
-			contextWindow: 256_000,
-			maxTokens: 32_768,
-			compat: { maxTokensField: "max_tokens", supportsDeveloperRole: false, supportsStrictMode: false, supportsUsageInStreaming: true },
-		},
-		{
-			id: "aion-labs.aion-2-0",
-			name: "Aion 2.0",
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 1, output: 2, cacheRead: 0.25, cacheWrite: 0 },
-			contextWindow: 128_000,
-			maxTokens: 32_768,
-			compat: { maxTokensField: "max_tokens", supportsDeveloperRole: false, supportsStrictMode: false, supportsUsageInStreaming: true },
-		},
-		{
-			id: "claude-sonnet-4",
-			name: "Claude Sonnet 4",
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-			contextWindow: 200_000,
-			maxTokens: 64_000,
-			compat: { maxTokensField: "max_tokens", supportsDeveloperRole: false, supportsStrictMode: false, supportsUsageInStreaming: true },
-		},
-		{
-			id: "openai/gpt-4.1",
-			name: "GPT-4.1",
-			reasoning: false,
-			input: ["text", "image"],
-			cost: { input: 2, output: 8, cacheRead: 0.5, cacheWrite: 0 },
-			contextWindow: 1_047_576,
-			maxTokens: 32_768,
-			compat: { maxTokensField: "max_tokens", supportsDeveloperRole: false, supportsStrictMode: false, supportsUsageInStreaming: true },
-		},
-		{
-			id: "openai/gpt-4.1-mini",
-			name: "GPT-4.1 Mini",
-			reasoning: false,
-			input: ["text", "image"],
-			cost: { input: 0.4, output: 1.6, cacheRead: 0.1, cacheWrite: 0 },
-			contextWindow: 1_047_576,
-			maxTokens: 32_768,
-			compat: { maxTokensField: "max_tokens", supportsDeveloperRole: false, supportsStrictMode: false, supportsUsageInStreaming: true },
-		},
 	];
 }
 
