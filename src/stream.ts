@@ -24,7 +24,9 @@ export function createSurplusStreamSimple(
 			onPayload(payload) {
 				const params = payload as Record<string, any>;
 				if (model.reasoning) {
-					params.include_reasoning = true;
+					// Prefer summarized reasoning. Closed models often expose a summary
+					// instead of raw reasoning to avoid distillation and reduce token use.
+					params.include_reasoning = "summary";
 				}
 				if (
 					reasoningEffort !== undefined &&
