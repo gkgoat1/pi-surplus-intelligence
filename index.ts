@@ -18,28 +18,13 @@ const BASE_URL = "https://api.surplusintelligence.ai/v1";
 const MODELS_URL = `${BASE_URL}/models`;
 const API_KEY_ENV_VAR = "SURPLUS_INTELLIGENCE_API_KEY";
 
-type ModelConfig = {
-	id: string;
-	name: string;
-	reasoning: boolean;
-	input: ("text" | "image")[];
-	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
-	contextWindow: number;
-	maxTokens: number;
-	compat?: {
-		maxTokensField?: "max_completion_tokens" | "max_tokens";
-		supportsDeveloperRole?: boolean;
-		supportsStrictMode?: boolean;
-		supportsUsageInStreaming?: boolean;
-	};
-};
 
 function parseCost(value: unknown): number {
 	const n = typeof value === "string" ? Number(value) : typeof value === "number" ? value : NaN;
 	return Number.isFinite(n) ? n * 1_000_000 : 0;
 }
 
-function mapSurplusModel(model: unknown): ModelConfig | undefined {
+function mapSurplusModel(model: unknown): any {
 	const m = model as Record<string, any> | undefined;
 	if (!m || typeof m.id !== "string") return undefined;
 
@@ -55,7 +40,7 @@ function mapSurplusModel(model: unknown): ModelConfig | undefined {
 	return {
 		id: m.id,
 		name: typeof m.name === "string" && m.name ? m.name : m.id,
-		reasoning: true,
+		reasoning: m.reasoning ? true : false,
 		input,
 		cost: {
 			input: parseCost(m.pricing?.prompt),
@@ -74,12 +59,12 @@ function mapSurplusModel(model: unknown): ModelConfig | undefined {
 	};
 }
 
-function fallbackModels(): ModelConfig[] {
+function fallbackModels(): any[] {
 	return [
 	];
 }
 
-async function fetchModels(apiKey: string): Promise<ModelConfig[]> {
+async function fetchModels(apiKey: string): Promise<any[]> {
 	const response = await fetch(MODELS_URL, {
 		headers: {
 			Authorization: `Bearer ${apiKey}`,
@@ -90,7 +75,7 @@ async function fetchModels(apiKey: string): Promise<ModelConfig[]> {
 		throw new Error(`Surplus Intelligence /v1/models returned ${response.status}`);
 	}
 	const payload = (await response.json()) as { data?: unknown[] } | undefined;
-	const models = payload?.data?.map(mapSurplusModel).filter((m): m is ModelConfig => m !== undefined) ?? [];
+	const models = payload?.data?.map(mapSurplusModel).filter((m): m is any => m !== undefined) ?? [];
 	if (models.length === 0) {
 		throw new Error("Surplus Intelligence /v1/models returned no models");
 	}
