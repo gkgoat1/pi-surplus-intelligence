@@ -70,8 +70,6 @@ function mapSurplusModel(model: unknown): ModelConfig | undefined {
 			supportsDeveloperRole: false,
 			supportsStrictMode: false,
 			supportsUsageInStreaming: true,
-			supportsReasoningEffort: true,
-			thinkingFormat: "openrouter"
 		},
 	};
 }
