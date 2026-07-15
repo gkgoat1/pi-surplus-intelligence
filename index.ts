@@ -55,7 +55,7 @@ function mapSurplusModel(model: unknown): ModelConfig | undefined {
 	return {
 		id: m.id,
 		name: typeof m.name === "string" && m.name ? m.name : m.id,
-		reasoning: m.reasoning ? true : false,
+		reasoning: true,
 		input,
 		cost: {
 			input: parseCost(m.pricing?.prompt),
