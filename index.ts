@@ -115,7 +115,7 @@ export default async function (pi: ExtensionAPI) {
 		name: PROVIDER_NAME,
 		baseUrl: BASE_URL,
 		apiKey: `$${API_KEY_ENV_VAR}`,
-		api: "openai-completions",
+		api: "openai-responses",
 		authHeader: true,
 		models,
 	});
