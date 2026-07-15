@@ -1,0 +1,21 @@
+{
+  "name": "pi-surplus-intelligence-extension",
+  "version": "0.1.0",
+  "description": "Pi extension adding Surplus Intelligence as a model provider",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "surplus-intelligence",
+    "pi-extension"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "license": "MIT"
+}
