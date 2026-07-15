@@ -46,6 +46,20 @@ export function mapSurplusModel(model: unknown): any {
 	};
 }
 
+export function applyProOverrides(models: any[]): any[] {
+	const ids = new Set(models.map((m) => m.id));
+	const overridden = new Set<string>();
+	for (const m of models) {
+		if (m.id.endsWith("-pro")) {
+			const baseId = m.id.slice(0, -4);
+			if (ids.has(baseId)) {
+				overridden.add(baseId);
+			}
+		}
+	}
+	return models.filter((m) => !overridden.has(m.id));
+}
+
 export function fallbackModels(): any[] {
 	// Minimal fallback so startup doesn't break if the model catalog can't be
 	// fetched. Reasoning flags mirror the advertised supported_parameters.
@@ -84,6 +98,23 @@ export function fallbackModels(): any[] {
 				supportsReasoningEffort: true,
 			},
 		},
+		{
+			id: "gpt-5.6-luna-pro",
+			api: API,
+			name: "GPT 5.6 Luna Pro",
+			reasoning: true,
+			input: ["text"] as ("text" | "image")[],
+			cost: { input: 0, output: 0 },
+			contextWindow: 1_100_000,
+			maxTokens: 131_072,
+			compat: {
+				maxTokensField: "max_tokens",
+				supportsDeveloperRole: false,
+				supportsStrictMode: false,
+				supportsUsageInStreaming: true,
+				supportsReasoningEffort: true,
+			},
+		},
 	];
 }
 
@@ -98,7 +129,9 @@ export async function fetchModels(apiKey: string): Promise<any[]> {
 		throw new Error(`Surplus Intelligence /v1/models returned ${response.status}`);
 	}
 	const payload = (await response.json()) as { data?: unknown[] } | undefined;
-	const models = payload?.data?.map(mapSurplusModel).filter((m): m is any => m !== undefined) ?? [];
+	const models = applyProOverrides(
+		payload?.data?.map(mapSurplusModel).filter((m): m is any => m !== undefined) ?? [],
+	);
 	if (models.length === 0) {
 		throw new Error("Surplus Intelligence /v1/models returned no models");
 	}

@@ -3,9 +3,10 @@
 Adds support for [Surplus Intelligence](https://surplusintelligence.ai) to Pi.
 
 The provider uses Surplus Intelligence's OpenAI-compatible `/v1/chat/completions`
-endpoint. The extension injects `include_reasoning: true` and maps Pi's thinking
-level to OpenAI's `reasoning_effort` parameter so models that expose reasoning
-show a reasoning preview.
+endpoint. The extension injects `include_reasoning: "summary"` to request
+concise reasoning previews from closed models, maps Pi's thinking level to
+OpenAI's `reasoning_effort`, and falls back to displaying reasoning-token counts
+when a model reasons without exposing any reasoning text.
 
 ## Usage
 
@@ -38,6 +39,10 @@ The extension fetches the live model list from
 set only for models whose `supported_parameters` include `reasoning` or
 `include_reasoning`. If the catalog fetch fails, a small fallback list is used
 so startup still works.
+
+When both a base model and its `-pro` variant are available, the pro model
+replaces the base model in the catalog (pro models are often cheaper and/or
+better). For example, `gpt-5.6-terra` is hidden in favor of `gpt-5.6-terra-pro`.
 
 ## Authentication
 
