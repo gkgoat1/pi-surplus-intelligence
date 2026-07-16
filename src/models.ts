@@ -46,20 +46,6 @@ export function mapSurplusModel(model: unknown): any {
 	};
 }
 
-export function applyProOverrides(models: any[]): any[] {
-	const ids = new Set(models.map((m) => m.id));
-	const overridden = new Set<string>();
-	for (const m of models) {
-		if (m.id.endsWith("-pro")) {
-			const baseId = m.id.slice(0, -4);
-			if (ids.has(baseId)) {
-				overridden.add(baseId);
-			}
-		}
-	}
-	return models.filter((m) => !overridden.has(m.id));
-}
-
 export function fallbackModels(): any[] {
 	// Minimal fallback so startup doesn't break if the model catalog can't be
 	// fetched. Reasoning flags mirror the advertised supported_parameters.
@@ -129,9 +115,8 @@ export async function fetchModels(apiKey: string): Promise<any[]> {
 		throw new Error(`Surplus Intelligence /v1/models returned ${response.status}`);
 	}
 	const payload = (await response.json()) as { data?: unknown[] } | undefined;
-	const models = applyProOverrides(
-		payload?.data?.map(mapSurplusModel).filter((m): m is any => m !== undefined) ?? [],
-	);
+	const models =
+		payload?.data?.map(mapSurplusModel).filter((m): m is any => m !== undefined) ?? [];
 	if (models.length === 0) {
 		throw new Error("Surplus Intelligence /v1/models returned no models");
 	}

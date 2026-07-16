@@ -40,10 +40,6 @@ set only for models whose `supported_parameters` include `reasoning` or
 `include_reasoning`. If the catalog fetch fails, a small fallback list is used
 so startup still works.
 
-When both a base model and its `-pro` variant are available, the pro model
-replaces the base model in the catalog (pro models are often cheaper and/or
-better). For example, `gpt-5.6-terra` is hidden in favor of `gpt-5.6-terra-pro`.
-
 ## Authentication
 
 The extension reads the key from the `SURPLUS_INTELLIGENCE_API_KEY` environment
