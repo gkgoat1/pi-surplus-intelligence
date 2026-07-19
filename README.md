@@ -45,6 +45,15 @@ so startup still works.
 The extension reads the key from the `SURPLUS_INTELLIGENCE_API_KEY` environment
 variable.
 
+## pi-blackhole compatibility
+
+`pi-blackhole` runs its background consolidation agents in an isolated module
+graph, so its default provider resolver cannot see custom provider APIs. This
+extension registers its Surplus streaming function in pi-blackhole's
+process-wide bridge during startup. Surplus Intelligence can therefore be used
+as the primary model while `pi-blackhole` observer, reflector, and dropper
+agents are enabled, regardless of package load order.
+
 ## Installation
 
 This extension is project-local. From the repo root run:

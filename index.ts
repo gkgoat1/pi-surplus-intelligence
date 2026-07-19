@@ -18,6 +18,20 @@ import { fetchModels, fallbackModels } from "./src/models.ts";
 import { loadStreamHelpers } from "./src/loader.ts";
 import { createSurplusStreamSimple } from "./src/stream.ts";
 
+// pi-blackhole loads its consolidation agents through a separate jiti module
+// graph. Its fallback `streamSimple` registry therefore does not know about
+// Pi providers registered by extensions. pi-blackhole intentionally exposes
+// this process-wide bridge for those providers; seed it ourselves so the
+// result is independent of extension load order.
+const BLACKHOLE_PROVIDER_STREAMS_KEY = Symbol.for("pi-blackhole:provider-streams");
+
+function registerBlackholeStreamBridge(api: string, streamSimple: Function): void {
+	const host = globalThis as any;
+	const streams: Map<string, Function> = host[BLACKHOLE_PROVIDER_STREAMS_KEY] ?? new Map();
+	streams.set(api, streamSimple);
+	host[BLACKHOLE_PROVIDER_STREAMS_KEY] = streams;
+}
+
 export default async function (pi: ExtensionAPI) {
 	const [apiKey, helpers] = await Promise.all([
 		process.env[API_KEY_ENV_VAR],
@@ -40,6 +54,12 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
+	const streamSimple = createSurplusStreamSimple(helpers);
+
+	// Register before calling Pi so pi-blackhole can use the custom stream from
+	// its isolated agent runtime even when it initialized before or after us.
+	registerBlackholeStreamBridge(API, streamSimple);
+
 	pi.registerProvider(PROVIDER_ID, {
 		name: PROVIDER_NAME,
 		baseUrl: BASE_URL,
@@ -47,6 +67,6 @@ export default async function (pi: ExtensionAPI) {
 		api: API,
 		authHeader: true,
 		models,
-		streamSimple: createSurplusStreamSimple(helpers),
+		streamSimple,
 	});
 }
