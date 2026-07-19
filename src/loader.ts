@@ -14,6 +14,7 @@ export async function loadStreamHelpers(): Promise<StreamHelpers> {
 	const aiDirCandidates = [
 		join(piCodingDir, "../node_modules/@earendil-works/pi-ai"),
 		join(piCodingDir, "../../pi-ai"),
+		join(piCodingDir, "../lib/node_modules/@earendil-works/pi-ai"),
 	];
 	const aiDir = aiDirCandidates.find((candidate) =>
 		existsSync(join(candidate, "dist/api/openai-completions.js")),
