@@ -45,6 +45,46 @@ so startup still works.
 The extension reads the key from the `SURPLUS_INTELLIGENCE_API_KEY` environment
 variable.
 
+## Preferred upstream providers
+
+Surplus remains the model selected in Pi, but it can transparently send each
+request to an authenticated Pi provider first. The preferred provider uses its
+normal Pi stream/API implementation. Add an optional project-local
+configuration file:
+
+```json
+// .pi/surplus-intelligence.json
+{
+  "preferredProviders": [
+    {
+      "provider": "openrouter",
+      "models": {
+        "kimi-k2.7-code": "moonshotai/kimi-k2.7-code"
+      }
+    },
+    {
+      "provider": "moonshotai"
+    }
+  ]
+}
+```
+
+Entries are attempted in order. A mapping is optional; without one, the
+Surplus model ID is used as the preferred provider's model ID. A route is
+skipped when its model is unavailable or has no configured credentials.
+
+A terminal preferred-provider error puts that route into an exponential-backoff
+cooldown (5 seconds initially, doubling up to 5 minutes, with full jitter).
+The next request uses the next healthy preferred route or Surplus itself.
+Successful preferred responses clear the route's cooldown; cancellations do
+not count as failures. With no config file or an empty array, behavior is
+unchanged.
+
+The active `/model` selection is never changed by this feature. This prevents
+conflicts with other extensions calling `pi.setModel` or executing separate
+agents. In interactive Pi, the footer identifies the preferred upstream or its
+cooldown state. The status is not emitted in print, JSON, or RPC modes.
+
 ## pi-blackhole compatibility
 
 `pi-blackhole` runs its background consolidation agents in an isolated module

@@ -16,6 +16,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { API_KEY_ENV_VAR, PROVIDER_ID, PROVIDER_NAME, BASE_URL, API } from "./src/constants.ts";
 import { fetchModels, fallbackModels } from "./src/models.ts";
 import { loadStreamHelpers } from "./src/loader.ts";
+import {
+	clearPreferredProviderStatus,
+	configurePreferredProviders,
+	releasePreferredProviders,
+	updatePreferredProviderStatus,
+} from "./src/preferred-providers.ts";
 import { createSurplusStreamSimple } from "./src/stream.ts";
 
 // pi-blackhole loads its consolidation agents through a separate jiti module
@@ -68,5 +74,34 @@ export default async function (pi: ExtensionAPI) {
 		authHeader: true,
 		models,
 		streamSimple,
+	});
+
+	pi.on("session_start", (event, ctx) => {
+		const diagnostic = configurePreferredProviders({
+			sessionId: ctx.sessionManager.getSessionId(),
+			cwd: ctx.cwd,
+			modelRegistry: ctx.modelRegistry,
+			mode: ctx.mode,
+			ui: ctx.ui,
+			trusted: ctx.isProjectTrusted(),
+		});
+		if (diagnostic && ctx.mode === "tui") {
+			ctx.ui.notify(diagnostic, "warning");
+		}
+		updatePreferredProviderStatus(ctx.model, ctx.sessionManager.getSessionId());
+	});
+
+	pi.on("before_agent_start", (_event, ctx) => {
+		updatePreferredProviderStatus(ctx.model, ctx.sessionManager.getSessionId());
+	});
+
+	pi.on("model_select", (event, ctx) => {
+		updatePreferredProviderStatus(event.model, ctx.sessionManager.getSessionId());
+	});
+
+	pi.on("session_shutdown", (_event, ctx) => {
+		const sessionId = ctx.sessionManager.getSessionId();
+		clearPreferredProviderStatus(sessionId);
+		releasePreferredProviders(sessionId);
 	});
 }
