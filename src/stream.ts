@@ -18,6 +18,7 @@ import {
 	type PreferredRoute,
 } from "./preferred-providers.ts";
 import type { StreamHelpers } from "./types.ts";
+import { compressThinking, compressionConfig, compressionEligible } from "./thinking-compression.ts";
 
 function optionsForUpstream(
 	options: SimpleStreamOptions | undefined,
@@ -100,6 +101,11 @@ export function createSurplusStreamSimple(
 				// Some Surplus models consume reasoning tokens without exposing the raw
 				// reasoning text. In that case surface the token count as evidence.
 				let sawThinking = false;
+				const sourceIdentity = route?.model ?? model;
+				// A configured source is fully buffered so raw candidate thinking is
+				// never emitted before compression has either succeeded or failed.
+				const bufferThinking = compressionEligible(compressionConfig(options?.sessionId), sourceIdentity);
+				const deferredEvents: any[] = [];
 				for await (const event of builtInStream) {
 					if (
 						event.type === "thinking_start" ||
@@ -132,6 +138,11 @@ export function createSurplusStreamSimple(
 						upstream.diagnostics = [...(upstream.diagnostics ?? []), diagnostic];
 					}
 
+					if (bufferThinking && event.type !== "done" && event.type !== "error") {
+						deferredEvents.push(event);
+						continue;
+					}
+
 					if (event.type === "done") {
 						if (route) {
 							recordPreferredRouteSuccess(route);
@@ -139,11 +150,14 @@ export function createSurplusStreamSimple(
 							updatePreferredProviderStatus(model, route.scopeId);
 						}
 						const output = event.message;
-						const reasoningTokens = output.usage?.reasoning;
+						const compressed = await compressThinking(output, sourceIdentity, context, options);
+						const finalOutput = compressed?.message ?? event.message;
+						const doneEvent = compressed ? { ...event, message: finalOutput } : event;
+						const reasoningTokens = finalOutput.usage?.reasoning;
 						if (!route && !sawThinking && reasoningTokens) {
 							const text = `Model used ${reasoningTokens} reasoning token${reasoningTokens === 1 ? "" : "s"} (no reasoning text was returned).`;
 							const block = { type: "thinking", thinking: text, thinkingSignature: undefined };
-							const content = output.content as any[];
+							const content = finalOutput.content as any[];
 							const contentIndex = content.length;
 							content.push(block);
 							wrapped.push({
@@ -164,8 +178,34 @@ export function createSurplusStreamSimple(
 								partial: output,
 							});
 						}
-						wrapped.push(event);
-						wrapped.end(output);
+						if (bufferThinking) {
+							let emittedReplacement = false;
+							for (const deferred of deferredEvents) {
+								const isThinking = deferred.type === "thinking_start" || deferred.type === "thinking_delta" || deferred.type === "thinking_end";
+								if (!isThinking) {
+									wrapped.push(deferred);
+									continue;
+								}
+								if (!compressed) {
+									wrapped.push(deferred);
+									continue;
+								}
+								if (!emittedReplacement && deferred.type === "thinking_start") {
+									const block = (finalOutput.content as any[])[compressed.index];
+									wrapped.push({ type: "thinking_start", contentIndex: compressed.index, partial: finalOutput });
+									wrapped.push({ type: "thinking_delta", contentIndex: compressed.index, delta: block.thinking, partial: finalOutput });
+									wrapped.push({ type: "thinking_end", contentIndex: compressed.index, content: block.thinking, partial: finalOutput });
+									emittedReplacement = true;
+								}
+							}
+						} else if (compressed) {
+							const block = (finalOutput.content as any[])[compressed.index];
+							wrapped.push({ type: "thinking_start", contentIndex: compressed.index, partial: finalOutput });
+							wrapped.push({ type: "thinking_delta", contentIndex: compressed.index, delta: block.thinking, partial: finalOutput });
+							wrapped.push({ type: "thinking_end", contentIndex: compressed.index, content: block.thinking, partial: finalOutput });
+						}
+						wrapped.push(doneEvent);
+						wrapped.end(finalOutput);
 						return;
 					}
 
@@ -176,6 +216,9 @@ export function createSurplusStreamSimple(
 							updatePreferredProviderStatus(model, route.scopeId);
 						}
 						const output = event.error;
+						if (bufferThinking) {
+							for (const deferred of deferredEvents) wrapped.push(deferred);
+						}
 						wrapped.push(event);
 						wrapped.end(output);
 						return;

@@ -23,6 +23,10 @@ import {
 	updatePreferredProviderStatus,
 } from "./src/preferred-providers.ts";
 import { createSurplusStreamSimple } from "./src/stream.ts";
+import {
+	configureThinkingCompression,
+	releaseThinkingCompression,
+} from "./src/thinking-compression.ts";
 
 // pi-blackhole loads its consolidation agents through a separate jiti module
 // graph. Its fallback `streamSimple` registry therefore does not know about
@@ -77,16 +81,26 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (event, ctx) => {
-		const diagnostic = configurePreferredProviders({
-			sessionId: ctx.sessionManager.getSessionId(),
-			cwd: ctx.cwd,
-			modelRegistry: ctx.modelRegistry,
-			mode: ctx.mode,
-			ui: ctx.ui,
-			trusted: ctx.isProjectTrusted(),
-		});
-		if (diagnostic && ctx.mode === "tui") {
-			ctx.ui.notify(diagnostic, "warning");
+		const [preferredDiagnostic, compressionDiagnostic] = [
+			configurePreferredProviders({
+				sessionId: ctx.sessionManager.getSessionId(),
+				cwd: ctx.cwd,
+				modelRegistry: ctx.modelRegistry,
+				mode: ctx.mode,
+				ui: ctx.ui,
+				trusted: ctx.isProjectTrusted(),
+			}),
+			configureThinkingCompression({
+				sessionId: ctx.sessionManager.getSessionId(),
+				cwd: ctx.cwd,
+				modelRegistry: ctx.modelRegistry,
+				mode: ctx.mode,
+				ui: ctx.ui,
+				trusted: ctx.isProjectTrusted(),
+			}),
+		];
+		for (const diagnostic of [preferredDiagnostic, compressionDiagnostic]) {
+			if (diagnostic && ctx.mode === "tui") ctx.ui.notify(diagnostic, "warning");
 		}
 		updatePreferredProviderStatus(ctx.model, ctx.sessionManager.getSessionId());
 	});
@@ -103,5 +117,6 @@ export default async function (pi: ExtensionAPI) {
 		const sessionId = ctx.sessionManager.getSessionId();
 		clearPreferredProviderStatus(sessionId);
 		releasePreferredProviders(sessionId);
+		releaseThinkingCompression(sessionId);
 	});
 }
