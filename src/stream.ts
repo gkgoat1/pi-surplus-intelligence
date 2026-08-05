@@ -20,6 +20,7 @@ import {
 import type { StreamHelpers } from "./types.ts";
 import { compressThinking, compressionConfig, compressionEligible } from "./thinking-compression.ts";
 import { usesOpenAIResponsesApi } from "./models.ts";
+import { createResponsesToolStream } from "./responses-tools.ts";
 
 const MAX_EMPTY_RESPONSE_ATTEMPTS = 2;
 
@@ -100,7 +101,8 @@ function optionsForUpstream(
 export function createSurplusStreamSimple(
 	helpers: StreamHelpers,
 ): (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream {
-	const { completionsStream, responsesStream, createAssistantMessageEventStream } = helpers;
+	const { completionsStream, responsesToolStream: responsesToolStreamHelper, createAssistantMessageEventStream } = helpers;
+	const responsesDirectStream = responsesToolStreamHelper ?? createResponsesToolStream(createAssistantMessageEventStream);
 
 	return function surplusStreamSimple(
 		model: Model<Api>,
@@ -138,7 +140,7 @@ export function createSurplusStreamSimple(
 					route
 						? streamPreferredRoute(route, context, upstreamOptions)
 						: usesOpenAIResponsesApi(model.id)
-							? responsesStream(model, context, {
+							? responsesDirectStream(model, context, {
 								...upstreamOptions,
 								reasoningEffort,
 								reasoningSummary: model.reasoning ? "auto" : undefined,

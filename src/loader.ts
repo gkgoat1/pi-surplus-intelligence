@@ -4,11 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { StreamHelpers } from "./types.ts";
 
 export async function loadStreamHelpers(): Promise<StreamHelpers> {
-	// The built-in openai-completions module and the event-stream factory are
-	// ESM-only and pi's jiti extension loader resolves subpath imports via
-	// CommonJS, which fails on packages without a "require" export. Load the
-	// files directly by locating pi-coding-agent's installation path from the
-	// running CLI binary.
+	// The built-in API modules are ESM-only, while Pi loads extensions through
+	// jiti. Resolve them relative to the running CLI and import their files.
 	const binPath = realpathSync(process.argv[1] ?? process.execPath);
 	const piCodingDir = dirname(fileURLToPath(pathToFileURL(binPath)));
 	const aiDirCandidates = [

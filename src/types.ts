@@ -19,5 +19,6 @@ export type CreateAssistantMessageEventStream = () => AssistantMessageEventStrea
 export type StreamHelpers = {
 	completionsStream: BuiltInStream;
 	responsesStream: BuiltInStream;
+	responsesToolStream?: BuiltInStream;
 	createAssistantMessageEventStream: CreateAssistantMessageEventStream;
 };

@@ -4,11 +4,13 @@ Adds support for [Surplus Intelligence](https://surplusintelligence.ai) to Pi.
 
 The extension uses Surplus Intelligence's OpenAI-compatible
 `/v1/chat/completions` endpoint by default, and switches GPT-5-and-later model
-IDs to `/v1/responses`. It injects `include_reasoning: "summary"` for
-chat-completions models to request concise reasoning previews from closed
-models, maps Pi's thinking level to OpenAI's `reasoning_effort`, and falls
-back to displaying reasoning-token counts when a model reasons without exposing
-any reasoning text.
+IDs to `/v1/responses`. For stability with those models it issues the Responses
+request directly through `fetch` (non-streaming) so it can normalize headers
+and recover tool calls from the completed response body.
+It injects `include_reasoning: "summary"` for chat-completions models to request
+concise reasoning previews from closed models, maps Pi's thinking level to
+OpenAI's `reasoning_effort`, and falls back to displaying reasoning-token counts
+when a model reasons without exposing any reasoning text.
 
 ## Usage
 
