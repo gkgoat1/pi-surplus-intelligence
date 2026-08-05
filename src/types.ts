@@ -1,18 +1,23 @@
 import type {
+	Api,
 	AssistantMessageEventStream,
 	Context,
 	Model,
+	SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 
-export type OpenAICompletionsStream = (
-	model: Model<"openai-completions">,
+export type BuiltInStreamOptions = SimpleStreamOptions & Record<string, unknown>;
+
+export type BuiltInStream = (
+	model: Model<Api>,
 	context: Context,
-	options?: any,
+	options?: BuiltInStreamOptions,
 ) => AssistantMessageEventStream;
 
 export type CreateAssistantMessageEventStream = () => AssistantMessageEventStream;
 
 export type StreamHelpers = {
-	stream: OpenAICompletionsStream;
+	completionsStream: BuiltInStream;
+	responsesStream: BuiltInStream;
 	createAssistantMessageEventStream: CreateAssistantMessageEventStream;
 };

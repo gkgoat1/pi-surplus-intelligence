@@ -23,13 +23,15 @@ export async function loadStreamHelpers(): Promise<StreamHelpers> {
 		throw new Error("Could not locate the @earendil-works/pi-ai package relative to pi-coding-agent.");
 	}
 
-	const [completionsMod, eventStreamMod] = await Promise.all([
+	const [completionsMod, responsesMod, eventStreamMod] = await Promise.all([
 		import(pathToFileURL(join(aiDir, "dist/api/openai-completions.js")).href),
+		import(pathToFileURL(join(aiDir, "dist/api/openai-responses.js")).href),
 		import(pathToFileURL(join(aiDir, "dist/utils/event-stream.js")).href),
 	]);
 
 	return {
-		stream: completionsMod.stream,
+		completionsStream: completionsMod.stream,
+		responsesStream: responsesMod.stream,
 		createAssistantMessageEventStream: eventStreamMod.createAssistantMessageEventStream,
 	};
 }

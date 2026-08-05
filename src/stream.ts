@@ -19,6 +19,7 @@ import {
 } from "./preferred-providers.ts";
 import type { StreamHelpers } from "./types.ts";
 import { compressThinking, compressionConfig, compressionEligible } from "./thinking-compression.ts";
+import { usesOpenAIResponsesApi } from "./models.ts";
 
 function optionsForUpstream(
 	options: SimpleStreamOptions | undefined,
@@ -37,7 +38,7 @@ function optionsForUpstream(
 export function createSurplusStreamSimple(
 	helpers: StreamHelpers,
 ): (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream {
-	const { stream: openAICompletionsStream, createAssistantMessageEventStream } = helpers;
+	const { completionsStream, responsesStream, createAssistantMessageEventStream } = helpers;
 
 	return function surplusStreamSimple(
 		model: Model<Api>,
@@ -73,30 +74,44 @@ export function createSurplusStreamSimple(
 
 				const builtInStream = route
 					? streamPreferredRoute(route, context, upstreamOptions)
-					: openAICompletionsStream(model as Model<"openai-completions">, context, {
-						...upstreamOptions,
-						reasoningEffort,
-						onPayload(payload: unknown) {
-							const params = payload as Record<string, any>;
-							if (model.reasoning) {
-								// Prefer summarized reasoning. Closed models often expose a summary
-								// instead of raw reasoning to avoid distillation and reduce token use.
-								params.include_reasoning = "summary";
-							}
-							if (
-								reasoningEffort !== undefined &&
-								(model.compat as any)?.supportsReasoningEffort !== false &&
-								params.reasoning_effort === undefined
-							) {
-								params.reasoning_effort = reasoningEffort;
-							}
-							if (originalOnPayload) {
-								const next = originalOnPayload(params, model);
-								if (next !== undefined) return next;
-							}
-							return params;
-						},
-					});
+					: usesOpenAIResponsesApi(model.id)
+						? responsesStream(model, context, {
+							...upstreamOptions,
+							reasoningEffort,
+							reasoningSummary: model.reasoning ? "auto" : undefined,
+							onPayload(payload: unknown) {
+								const params = payload as Record<string, any>;
+								if (originalOnPayload) {
+									const next = originalOnPayload(params, model);
+									if (next !== undefined) return next;
+								}
+								return params;
+							},
+						})
+						: completionsStream(model, context, {
+							...upstreamOptions,
+							reasoningEffort,
+							onPayload(payload: unknown) {
+								const params = payload as Record<string, any>;
+								if (model.reasoning) {
+									// Prefer summarized reasoning. Closed models often expose a summary
+									// instead of raw reasoning to avoid distillation and reduce token use.
+									params.include_reasoning = "summary";
+								}
+								if (
+									reasoningEffort !== undefined &&
+									(model.compat as any)?.supportsReasoningEffort !== false &&
+									params.reasoning_effort === undefined
+								) {
+									params.reasoning_effort = reasoningEffort;
+								}
+								if (originalOnPayload) {
+									const next = originalOnPayload(params, model);
+									if (next !== undefined) return next;
+								}
+								return params;
+							},
+						});
 
 				// Some Surplus models consume reasoning tokens without exposing the raw
 				// reasoning text. In that case surface the token count as evidence.

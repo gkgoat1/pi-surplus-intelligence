@@ -1,10 +1,10 @@
 /**
  * Pi extension for Surplus Intelligence.
  *
- * Registers Surplus Intelligence as an OpenAI-compatible chat-completions
- * provider and discovers available models from its /v1/models endpoint. A
- * custom streamSimple wrapper injects `include_reasoning: true`, maps Pi's
- * thinking level to `reasoning_effort`, and falls back to token-count evidence
+ * Registers Surplus Intelligence as an OpenAI-compatible provider and discovers
+ * available models from its /v1/models endpoint. GPT-5-and-later requests use
+ * the Responses API; earlier models use chat completions. A custom streamSimple
+ * wrapper injects reasoning settings and falls back to token-count evidence
  * when a model reasons without exposing reasoning text.
  *
  * Usage:

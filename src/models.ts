@@ -1,5 +1,11 @@
 import { API, MODELS_URL } from "./constants.ts";
 
+/** GPT-5-family models require the OpenAI Responses endpoint. */
+export function usesOpenAIResponsesApi(modelId: string): boolean {
+	const match = /^gpt-(\d+)(?:[.-]|$)/i.exec(modelId.trim());
+	return match !== null && Number(match[1]) >= 5;
+}
+
 function parseCost(value: unknown): number {
 	const n = typeof value === "string" ? Number(value) : typeof value === "number" ? value : NaN;
 	return Number.isFinite(n) ? n * 1_000_000 : 0;
