@@ -43,6 +43,18 @@ function registerBlackholeStreamBridge(api: string, streamSimple: Function): voi
 	host[BLACKHOLE_PROVIDER_STREAMS_KEY] = streams;
 }
 
+function notifyWithFlagMetadata(ui: { notify(message: string, type?: "info" | "warning" | "error"): void }, message: string, category: string): void {
+	const helper = (globalThis as Record<symbol, unknown>)[Symbol.for("gkqa-flag-sink:with-notification-metadata")];
+	if (typeof helper === "function") {
+		(helper as (meta: { source: string; category: string }, callback: () => void) => void)(
+			{ source: "pi-surplus-intelligence", category },
+			() => ui.notify(message, "warning"),
+		);
+		return;
+	}
+	ui.notify(message, "warning");
+}
+
 export default async function (pi: ExtensionAPI) {
 	const [apiKey, helpers] = await Promise.all([
 		process.env[API_KEY_ENV_VAR],
@@ -101,7 +113,7 @@ export default async function (pi: ExtensionAPI) {
 			}),
 		];
 		for (const diagnostic of [preferredDiagnostic, compressionDiagnostic]) {
-			if (diagnostic && ctx.mode === "tui") ctx.ui.notify(diagnostic, "warning");
+			if (diagnostic) notifyWithFlagMetadata(ctx.ui, diagnostic, "configuration");
 		}
 		updatePreferredProviderStatus(ctx.model, ctx.sessionManager.getSessionId());
 		// Fingerprinting runs by default (no config needed); it only needs the

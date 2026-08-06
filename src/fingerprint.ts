@@ -565,10 +565,18 @@ function scopeFor(sessionId?: string): FpScope | undefined {
  *  (expected,predicted) pair so a persistent swap doesn't spam every turn. */
 export function notifyFingerprintWarning(sessionId: string | undefined, key: string, text: string): void {
 	const scope = scopeFor(sessionId);
-	if (!scope || scope.mode !== "tui") return;
+	if (!scope) return;
 	const current = state();
 	if (current.reported.has(key)) return;
 	current.reported.add(key);
+	const helper = (globalThis as Record<symbol, unknown>)[Symbol.for("gkqa-flag-sink:with-notification-metadata")];
+	if (typeof helper === "function") {
+		(helper as (meta: { source: string; category: string; detail: { dedupeKey: string } }, callback: () => void) => void)(
+			{ source: "pi-surplus-intelligence", category: "model-fingerprint", detail: { dedupeKey: key } },
+			() => scope.ui.notify(text, "warning"),
+		);
+		return;
+	}
 	scope.ui.notify(text, "warning");
 }
 
