@@ -49,6 +49,27 @@ so startup still works.
 The extension reads the key from the `SURPLUS_INTELLIGENCE_API_KEY` environment
 variable.
 
+## Savings-based routing
+
+Direct Surplus requests use the `min50` route by default, which only permits
+routes offering at least 50% savings. Configure a project-local override in the
+same `.pi/surplus-intelligence.json` file; a per-model value takes precedence:
+
+```json
+{
+  "routing": {
+    "minimumSavings": 50,
+    "models": {
+      "known-cheap-model": 80
+    }
+  }
+}
+```
+
+This sends ordinary models to `/v1/min50/...` and `known-cheap-model` to
+`/v1/min80/...`. Values must be whole percentages from 0 through 100. Preferred
+upstream-provider routes are unaffected.
+
 ## Preferred upstream providers
 
 Surplus remains the model selected in Pi, but it can transparently send each

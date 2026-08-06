@@ -16,8 +16,14 @@ type PreferredProviderConfig = {
 	models?: Record<string, string>;
 };
 
+type RoutingConfig = {
+	minimumSavings: number;
+	models: Record<string, number>;
+};
+
 type PreferredProviderSettings = {
 	preferredProviders: PreferredProviderConfig[];
+	routing: RoutingConfig;
 };
 
 type RouteHealth = {
@@ -78,11 +84,35 @@ function getState(): GlobalHotswapState {
 }
 
 function emptySettings(): PreferredProviderSettings {
-	return { preferredProviders: [] };
+	return { preferredProviders: [], routing: { minimumSavings: 50, models: {} } };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function minimumSavings(value: unknown, path: string): number {
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 100) {
+		throw new Error(`"${path}" must be an integer from 0 to 100`);
+	}
+	return value;
+}
+
+function parseRouting(value: unknown): RoutingConfig {
+	if (value === undefined) return { minimumSavings: 50, models: {} };
+	if (!isPlainObject(value)) throw new Error('"routing" must be an object');
+
+	const minimum = value.minimumSavings === undefined
+		? 50
+		: minimumSavings(value.minimumSavings, "routing.minimumSavings");
+	const models: Record<string, number> = {};
+	if (value.models !== undefined) {
+		if (!isPlainObject(value.models)) throw new Error('"routing.models" must be an object');
+		for (const [modelId, saving] of Object.entries(value.models)) {
+			models[modelId] = minimumSavings(saving, `routing.models.${modelId}`);
+		}
+	}
+	return { minimumSavings: minimum, models };
 }
 
 function parseSettings(value: unknown): PreferredProviderSettings {
@@ -90,8 +120,9 @@ function parseSettings(value: unknown): PreferredProviderSettings {
 		throw new Error("must contain a JSON object");
 	}
 
+	const routing = parseRouting(value.routing);
 	const rawProviders = value.preferredProviders;
-	if (rawProviders === undefined) return emptySettings();
+	if (rawProviders === undefined) return { preferredProviders: [], routing };
 	if (!Array.isArray(rawProviders)) {
 		throw new Error('"preferredProviders" must be an array');
 	}
@@ -128,7 +159,7 @@ function parseSettings(value: unknown): PreferredProviderSettings {
 		providers.push({ provider: rawProvider.provider, models });
 	}
 
-	return { preferredProviders: providers };
+	return { preferredProviders: providers, routing };
 }
 
 function loadSettings(cwd: string, trusted: boolean): { settings: PreferredProviderSettings; diagnostic?: string } {
@@ -173,6 +204,18 @@ export function configurePreferredProviders(
 	if (state.reportedDiagnostics.has(diagnosticKey)) return undefined;
 	state.reportedDiagnostics.add(diagnosticKey);
 	return diagnostic;
+}
+
+export function minimumSavingsForModel(model: Model<Api>, sessionId: string | undefined): number | undefined {
+	if (model.provider !== PROVIDER_ID) return undefined;
+	const scope = scopeFor(sessionId)?.[1];
+	if (!scope) return undefined;
+	return scope.config.routing.models[model.id] ?? scope.config.routing.minimumSavings;
+}
+
+export function routeBaseUrl(baseUrl: string, minimumSavings: number | undefined): string {
+	if (minimumSavings === undefined) return baseUrl;
+	return `${baseUrl.replace(/\/$/, "")}/min${minimumSavings}/v1`;
 }
 
 export function releasePreferredProviders(sessionId: string): void {

@@ -9,6 +9,8 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import {
+	minimumSavingsForModel,
+	routeBaseUrl,
 	recordPreferredRouteFailure,
 	recordPreferredRouteSuccess,
 	selectPreferredRoute,
@@ -144,6 +146,10 @@ export function createSurplusStreamSimple(
 				}
 
 				const preparedOptions = optionsForUpstream(options, route);
+				const minimumSavings = !route ? minimumSavingsForModel(model, options?.sessionId) : undefined;
+				const upstreamModel = minimumSavings === undefined
+					? model
+					: { ...model, baseUrl: routeBaseUrl(model.baseUrl, minimumSavings) };
 				const { transformHeaders, ...upstreamOptions } = preparedOptions as SimpleStreamOptions & {
 					transformHeaders?: (headers: ProviderHeaders) => ProviderHeaders | Promise<ProviderHeaders>;
 				};
@@ -158,7 +164,7 @@ export function createSurplusStreamSimple(
 					route
 						? streamPreferredRoute(route, context, upstreamOptions)
 						: usesOpenAIResponsesApi(model.id)
-							? responsesDirectStream(model, context, {
+							? responsesDirectStream(upstreamModel, context, {
 								...upstreamOptions,
 								reasoningEffort,
 								reasoningSummary: model.reasoning ? "auto" : undefined,
@@ -171,7 +177,7 @@ export function createSurplusStreamSimple(
 									return params;
 								},
 							})
-							: completionsStream(model, context, {
+							: completionsStream(upstreamModel, context, {
 								...upstreamOptions,
 								reasoningEffort,
 								onPayload(payload: unknown) {

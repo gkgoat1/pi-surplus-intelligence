@@ -8,6 +8,8 @@ import {
 	configurePreferredProviders,
 	recordPreferredRouteFailure,
 	recordPreferredRouteSuccess,
+	minimumSavingsForModel,
+	routeBaseUrl,
 	selectPreferredRoute,
 } from "../src/preferred-providers.ts";
 
@@ -72,6 +74,23 @@ function configure(sessionId: string, cwd: string, models: Model<any>[]) {
 		trusted: true,
 	});
 }
+
+test("uses the global saving minimum and a per-model override", () => {
+	const cwd = temporaryProject({
+		routing: {
+			minimumSavings: 50,
+			models: { "cheap-model": 80 },
+		},
+	});
+	const defaultModel = model("surplus-intelligence", "normal-model");
+	const cheapModel = model("surplus-intelligence", "cheap-model");
+	configure("savings-routing", cwd, []);
+
+	assert.equal(minimumSavingsForModel(defaultModel, "savings-routing"), 50);
+	assert.equal(minimumSavingsForModel(cheapModel, "savings-routing"), 80);
+	assert.equal(routeBaseUrl(defaultModel.baseUrl, minimumSavingsForModel(defaultModel, "savings-routing")), "https://example.test/v1/min50");
+	assert.equal(routeBaseUrl(cheapModel.baseUrl, minimumSavingsForModel(cheapModel, "savings-routing")), "https://example.test/v1/min80");
+});
 
 test("uses the first configured healthy preferred route", async () => {
 	const cwd = temporaryProject({
