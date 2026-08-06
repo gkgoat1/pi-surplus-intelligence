@@ -22,7 +22,7 @@ import { compressThinking, compressionConfig, compressionEligible } from "./thin
 import { usesOpenAIResponsesApi } from "./models.ts";
 import { createResponsesToolStream } from "./responses-tools.ts";
 
-const MAX_EMPTY_RESPONSE_ATTEMPTS = 2;
+const MAX_RESPONSE_ATTEMPTS = 2;
 
 function hasAssistantOutput(message: AssistantMessage): boolean {
 	return message.content.some(
@@ -38,48 +38,66 @@ function emptyAssistantResponseError(model: Model<Api>): Error {
 
 function eventStartsAssistantOutput(event: any): boolean {
 	return (
-		(event.type === "text_delta" && event.delta.trim().length > 0) ||
-		(event.type === "text_end" && event.content.trim().length > 0) ||
+		(event.type === "text_delta" && typeof event.delta === "string" && event.delta.trim().length > 0) ||
+		(event.type === "text_end" && typeof event.content === "string" && event.content.trim().length > 0) ||
 		event.type === "toolcall_start" ||
 		event.type === "toolcall_delta" ||
 		event.type === "toolcall_end"
 	);
 }
 
-async function* retryEmptyAssistantResponses(
+/**
+ * Retry only requests whose output has not been exposed. Replaying after a
+ * text or tool-call event would duplicate a partial answer in Pi's history.
+ */
+async function* retryFailedAssistantResponses(
 	createStream: () => AssistantMessageEventStream,
 	model: Model<Api>,
 	signal: AbortSignal | undefined,
 ): AsyncGenerator<any> {
-	for (let attempt = 1; attempt <= MAX_EMPTY_RESPONSE_ATTEMPTS; attempt++) {
+	let lastFailure: unknown;
+	for (let attempt = 1; attempt <= MAX_RESPONSE_ATTEMPTS; attempt++) {
 		const buffered: any[] = [];
 		let forwarded = false;
-		let sawEmptyDone = false;
-		for await (const event of createStream()) {
-			if (!forwarded) {
-				buffered.push(event);
-				if (event.type === "error" || eventStartsAssistantOutput(event)) {
-					for (const bufferedEvent of buffered) yield bufferedEvent;
-					forwarded = true;
-				}
-			} else {
-				yield event;
-			}
-
-			if (event.type === "error") return;
-			if (event.type !== "done") continue;
-			if (forwarded || hasAssistantOutput(event.message)) {
+		let retryableFailure = false;
+		try {
+			for await (const event of createStream()) {
 				if (!forwarded) {
-					for (const bufferedEvent of buffered) yield bufferedEvent;
+					buffered.push(event);
+					if (eventStartsAssistantOutput(event)) {
+						for (const bufferedEvent of buffered) yield bufferedEvent;
+						forwarded = true;
+					}
+				} else {
+					yield event;
 				}
-				return;
+
+				if (event.type === "error") {
+					if (forwarded || signal?.aborted || attempt === MAX_RESPONSE_ATTEMPTS) {
+						if (!forwarded) for (const bufferedEvent of buffered) yield bufferedEvent;
+						return;
+					}
+					lastFailure = event.error?.errorMessage;
+					retryableFailure = true;
+					break;
+				}
+				if (event.type !== "done") continue;
+				if (forwarded || hasAssistantOutput(event.message)) {
+					if (!forwarded) for (const bufferedEvent of buffered) yield bufferedEvent;
+					return;
+				}
+				lastFailure = emptyAssistantResponseError(model);
+				retryableFailure = true;
+				break;
 			}
-			sawEmptyDone = true;
-			break;
+		} catch (error) {
+			lastFailure = error;
+			retryableFailure = true;
 		}
 		if (signal?.aborted) return;
-		if (!sawEmptyDone || attempt === MAX_EMPTY_RESPONSE_ATTEMPTS) {
-			throw emptyAssistantResponseError(model);
+		if (!retryableFailure) lastFailure = emptyAssistantResponseError(model);
+		if (attempt === MAX_RESPONSE_ATTEMPTS) {
+			throw lastFailure instanceof Error ? lastFailure : new Error(String(lastFailure));
 		}
 	}
 }
@@ -177,7 +195,7 @@ export function createSurplusStreamSimple(
 									return params;
 								},
 							});
-				const builtInStream = retryEmptyAssistantResponses(createBuiltInStream, model, options?.signal);
+				const builtInStream = retryFailedAssistantResponses(createBuiltInStream, model, options?.signal);
 
 				// Some Surplus models consume reasoning tokens without exposing the raw
 				// reasoning text. In that case surface the token count as evidence.

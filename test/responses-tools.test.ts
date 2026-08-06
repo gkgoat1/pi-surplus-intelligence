@@ -18,6 +18,31 @@ const model: any = {
 	input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1, maxTokens: 1,
 };
 
+test("surfaces a provider response's nested error message", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () => new Response(JSON.stringify({
+		error: { message: "The aggregated upstream rejected this request" },
+	}), { status: 400 })) as typeof fetch;
+
+	try {
+		let sink: RecordingStream | undefined;
+		const streamSimple = createResponsesToolStream(() => {
+			sink = new RecordingStream();
+			return sink as any;
+		});
+		streamSimple(model, { messages: [], tools: [] } as any, { apiKey: "test-key" });
+		await sink!.wait();
+
+		assert.equal(sink!.events.at(-1).type, "error");
+		assert.equal(
+			sink!.events.at(-1).error.errorMessage,
+			"Provider returned 400: The aggregated upstream rejected this request",
+		);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test("recovers a Responses tool call from a completed non-streaming response", async () => {
 	const originalFetch = globalThis.fetch;
 	const requests: any[] = [];

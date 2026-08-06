@@ -15,6 +15,31 @@ type ResponseStreamOptions = SimpleStreamOptions & {
 	toolChoice?: unknown;
 };
 
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function upstreamMessage(body: string): string {
+	try {
+		const parsed = JSON.parse(body) as unknown;
+		if (parsed && typeof parsed === "object") {
+			const record = parsed as Record<string, unknown>;
+			const nestedError = record.error;
+			if (typeof record.message === "string") return record.message;
+			if (nestedError && typeof nestedError === "object" && typeof (nestedError as Record<string, unknown>).message === "string") {
+				return (nestedError as Record<string, unknown>).message as string;
+			}
+		}
+	} catch {
+		// Providers are not required to return JSON errors; preserve their text below.
+	}
+	return body;
+}
+
+function providerError(response: Response, body: string): Error {
+	return new Error(`Provider returned ${response.status}: ${upstreamMessage(body)}`);
+}
+
 function usage(response: any): AssistantMessage["usage"] {
 	const cached = response.usage?.input_tokens_details?.cached_tokens ?? 0;
 	const cacheWrite = response.usage?.input_tokens_details?.cache_write_tokens ?? 0;
@@ -135,7 +160,7 @@ export function createResponsesToolStream(
 				const response = await fetch(`${model.baseUrl.replace(/\/$/, "")}/responses`, {
 					method: "POST", headers, body: JSON.stringify(payload), signal: options?.signal,
 				});
-				if (!response.ok) throw new Error(`OpenAI API error: ${response.status} ${await response.text()}`);
+				if (!response.ok) throw providerError(response, await response.text());
 				const body = await response.json() as any;
 				output.responseId = body.id;
 				output.usage = usage(body);
@@ -163,7 +188,7 @@ export function createResponsesToolStream(
 				stream.end(output);
 			} catch (error) {
 				output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-				output.errorMessage = error instanceof Error ? error.message : String(error);
+				output.errorMessage = errorMessage(error);
 				stream.push({ type: "error", reason: output.stopReason, error: output });
 				stream.end(output);
 			}

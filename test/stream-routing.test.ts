@@ -186,6 +186,68 @@ test("routes GPT-5 with tools through the direct Responses tool fallback", async
 	assert.equal(helper.sink.events.at(-1).message.content[0].name, "bash");
 });
 
+test("retries a pre-output provider error without exposing the failed attempt", async () => {
+	const selectedModel = model("gpt-5.6-terra");
+	let responsesCalls = 0;
+	const answer = completedMessage(selectedModel, "Retry succeeded");
+	const failed = completedMessage(selectedModel, "");
+	failed.stopReason = "error";
+	failed.errorMessage = "Provider returned 400: upstream rejected the request";
+	const helper = helpersWith({
+		responsesToolStream: () => {
+			responsesCalls++;
+			return (async function* () {
+				if (responsesCalls === 1) {
+					yield { type: "start", partial: failed };
+					yield { type: "error", reason: "error", error: failed };
+					return;
+				}
+				yield { type: "start", partial: answer };
+				yield { type: "text_delta", contentIndex: 0, delta: answer.content[0].text, partial: answer };
+				yield { type: "done", reason: "stop", message: answer };
+			})() as any;
+		},
+	});
+	configureEmptyPreferredRoutes("retry-provider-errors");
+
+	helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, {
+		sessionId: "retry-provider-errors",
+	});
+	await helper.sink.finished;
+
+	assert.equal(responsesCalls, 2);
+	assert.equal(helper.sink.events.filter((event) => event.type === "error").length, 0);
+	assert.equal(helper.sink.events.filter((event) => event.type === "start").length, 1);
+	assert.equal(helper.sink.events.at(-1).message.content[0].text, "Retry succeeded");
+});
+
+test("does not retry a provider error after output has started", async () => {
+	const selectedModel = model("gpt-5.6-terra");
+	let responsesCalls = 0;
+	const failed = completedMessage(selectedModel, "");
+	failed.stopReason = "error";
+	failed.errorMessage = "Provider returned 400: upstream rejected the request";
+	const helper = helpersWith({
+		responsesToolStream: () => {
+			responsesCalls++;
+			return (async function* () {
+				yield { type: "start", partial: failed };
+				yield { type: "text_delta", contentIndex: 0, delta: "partial", partial: failed };
+				yield { type: "error", reason: "error", error: failed };
+			})() as any;
+		},
+	});
+	configureEmptyPreferredRoutes("do-not-retry-partial-output");
+
+	helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, {
+		sessionId: "do-not-retry-partial-output",
+	});
+	await helper.sink.finished;
+
+	assert.equal(responsesCalls, 1);
+	assert.equal(helper.sink.events.at(-1).type, "error");
+});
+
 test("retries an empty GPT-5 response without exposing its empty events", async () => {
 	const selectedModel = model("gpt-5.6-terra");
 	let responsesCalls = 0;
