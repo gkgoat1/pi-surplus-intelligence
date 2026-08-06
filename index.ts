@@ -22,6 +22,7 @@ import {
 	releasePreferredProviders,
 	updatePreferredProviderStatus,
 } from "./src/preferred-providers.ts";
+import { configureFingerprint, releaseFingerprint } from "./src/fingerprint.ts";
 import { createSurplusStreamSimple } from "./src/stream.ts";
 import {
 	configureThinkingCompression,
@@ -103,6 +104,13 @@ export default async function (pi: ExtensionAPI) {
 			if (diagnostic && ctx.mode === "tui") ctx.ui.notify(diagnostic, "warning");
 		}
 		updatePreferredProviderStatus(ctx.model, ctx.sessionManager.getSessionId());
+		// Fingerprinting runs by default (no config needed); it only needs the
+		// session's UI context to surface mismatch warnings.
+		configureFingerprint({
+			sessionId: ctx.sessionManager.getSessionId(),
+			mode: ctx.mode,
+			ui: ctx.ui,
+		});
 	});
 
 	pi.on("before_agent_start", (_event, ctx) => {
@@ -118,5 +126,6 @@ export default async function (pi: ExtensionAPI) {
 		clearPreferredProviderStatus(sessionId);
 		releasePreferredProviders(sessionId);
 		releaseThinkingCompression(sessionId);
+		releaseFingerprint(sessionId);
 	});
 }

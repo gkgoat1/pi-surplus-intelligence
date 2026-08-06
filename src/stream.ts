@@ -21,6 +21,7 @@ import {
 } from "./preferred-providers.ts";
 import type { StreamHelpers } from "./types.ts";
 import { compressThinking, compressionConfig, compressionEligible } from "./thinking-compression.ts";
+import { analyzeResponse, notifyFingerprintWarning } from "./fingerprint.ts";
 import { usesOpenAIResponsesApi } from "./models.ts";
 import { createResponsesToolStream } from "./responses-tools.ts";
 
@@ -308,6 +309,16 @@ export function createSurplusStreamSimple(
 							wrapped.push({ type: "thinking_start", contentIndex: compressed.index, partial: finalOutput });
 							wrapped.push({ type: "thinking_delta", contentIndex: compressed.index, delta: block.thinking, partial: finalOutput });
 							wrapped.push({ type: "thinking_end", contentIndex: compressed.index, content: block.thinking, partial: finalOutput });
+						}
+						// Attach an inline fingerprint diagnostic and warn on a strong cross-family
+						// mismatch. finalOutput is the same object doneEvent references, so the
+						// appended diagnostic is visible downstream without rebuilding the event.
+						const fingerprint = analyzeResponse(finalOutput, model.id);
+						if (fingerprint?.diagnostic) {
+							finalOutput.diagnostics = [...(finalOutput.diagnostics ?? []), fingerprint.diagnostic];
+							if (fingerprint.warning && fingerprint.warningKey) {
+								notifyFingerprintWarning(options?.sessionId, fingerprint.warningKey, fingerprint.warning);
+							}
 						}
 						wrapped.push(doneEvent);
 						wrapped.end(finalOutput);
