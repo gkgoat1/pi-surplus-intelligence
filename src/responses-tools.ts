@@ -10,6 +10,7 @@ import type {
 import type { CreateAssistantMessageEventStream } from "./types.ts";
 
 type ResponseStreamOptions = SimpleStreamOptions & {
+	samplingParams?: Record<string, unknown>;
 	reasoningEffort?: string;
 	reasoningSummary?: "auto" | "detailed" | "concise" | null;
 	toolChoice?: unknown;
@@ -153,6 +154,10 @@ export function createResponsesToolStream(
 						summary: options.reasoningSummary ?? "auto",
 					};
 				}
+				// Pi 0.84 applies model and request sampling parameters after its named
+				// fields. Mirror that contract in this direct adapter so Surplus models
+				// retain custom OpenAI-compatible controls such as vLLM's top_k.
+				Object.assign(payload, (model as Model<Api> & { samplingParams?: Record<string, unknown> }).samplingParams ?? {}, options?.samplingParams ?? {});
 				if (options?.onPayload) {
 					const replacement = await options.onPayload(payload, model);
 					if (replacement !== undefined) Object.assign(payload, replacement);
@@ -160,6 +165,12 @@ export function createResponsesToolStream(
 				const response = await fetch(`${model.baseUrl.replace(/\/$/, "")}/responses`, {
 					method: "POST", headers, body: JSON.stringify(payload), signal: options?.signal,
 				});
+				// Pi 0.84 requires custom streams to notify provider-response hooks
+				// before consuming the body, including unsuccessful responses.
+				await options?.onResponse?.({
+					status: response.status,
+					headers: Object.fromEntries(response.headers.entries()),
+				}, model);
 				if (!response.ok) throw providerError(response, await response.text());
 				const body = await response.json() as any;
 				output.responseId = body.id;

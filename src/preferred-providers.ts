@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionUIContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 type ExtensionMode = "tui" | "rpc" | "json" | "print";
-import type { Api, AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type {
+	Api,
+	AssistantMessageEventStream,
+	Context,
+	Model,
+	ProviderHeaders,
+	SimpleStreamOptions,
+} from "@earendil-works/pi-ai";
 import { PROVIDER_ID } from "./constants.ts";
 
 const CONFIG_PATH = [".pi", "surplus-intelligence.json"];
@@ -55,7 +62,7 @@ export type PreferredRoute = {
 	modelName: string;
 	auth: {
 		apiKey?: string;
-		headers?: Record<string, string>;
+		headers?: ProviderHeaders;
 		env?: Record<string, string>;
 	};
 };
@@ -215,7 +222,7 @@ export function minimumSavingsForModel(model: Model<Api>, sessionId: string | un
 
 export function routeBaseUrl(baseUrl: string, minimumSavings: number | undefined): string {
 	if (minimumSavings === undefined) return baseUrl;
-	return `${baseUrl.replace(/\/$/, "")}/min${minimumSavings}/v1`;
+	return `${baseUrl.replace(/\/$/, "")}/min${minimumSavings}/v1`; //IMPORTANT: must match the server's routing path format, lest Pi fail to connect AT ALL. do NOT change this unless explicit instructions are given.
 }
 
 export function releasePreferredProviders(sessionId: string): void {

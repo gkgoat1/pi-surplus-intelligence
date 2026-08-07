@@ -277,7 +277,7 @@ test("retries an empty GPT-5 response without exposing its empty events", async 
 	assert.equal(helper.sink.events.at(-1).message.content[0].text, "Retry succeeded");
 });
 
-test("returns an error after a second empty response", async () => {
+test("stops retrying immediately when Pi aborts the request", async () => {
 	const selectedModel = model("gpt-5.6-terra");
 	let responsesCalls = 0;
 	const empty = completedMessage(selectedModel, "");
@@ -292,14 +292,17 @@ test("returns an error after a second empty response", async () => {
 	});
 	configureEmptyPreferredRoutes("retry-empty-exhausted");
 
+	const aborter = new AbortController();
+	setTimeout(() => aborter.abort(), 0);
 	helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, {
 		sessionId: "retry-empty-exhausted",
+		signal: aborter.signal,
 	});
 	await helper.sink.finished;
 
-	assert.equal(responsesCalls, 2);
+	assert.equal(responsesCalls, 1);
 	assert.equal(helper.sink.events.at(-1).type, "error");
-	assert.match(helper.sink.events.at(-1).error.errorMessage, /no assistant text or tool calls/);
+	assert.equal(helper.sink.events.at(-1).reason, "aborted");
 });
 
 test("keeps pre-GPT-5 streams on chat completions and preserves the completed answer", async () => {

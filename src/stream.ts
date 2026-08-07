@@ -25,7 +25,39 @@ import { analyzeResponse, notifyFingerprintWarning } from "./fingerprint.ts";
 import { usesOpenAIResponsesApi } from "./models.ts";
 import { createResponsesToolStream } from "./responses-tools.ts";
 
-const MAX_RESPONSE_ATTEMPTS = 2;
+const MAX_RESPONSE_ATTEMPTS = 15;
+const INITIAL_RETRY_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 60_000;
+
+/**
+ * Wait between attempts without keeping an agent alive after Pi has cancelled
+ * it. Long-running workflow agents can otherwise race an aborted request's
+ * retry timer and appear to hang.
+ */
+function waitForRetry(delayMs: number, signal: AbortSignal | undefined): Promise<boolean> {
+	if (signal?.aborted) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => finish(true), delayMs);
+		const onAbort = () => finish(false);
+		function finish(retry: boolean): void {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+			resolve(retry);
+		}
+		signal?.addEventListener("abort", onAbort, { once: true });
+	});
+}
+
+function abortedRequestError(): Error {
+	return new Error("Request aborted");
+}
+
+function retryDelayMs(attempt: number): number {
+	return Math.min(
+		INITIAL_RETRY_DELAY_MS * 2 ** (attempt - 1),
+		MAX_RETRY_DELAY_MS,
+	);
+}
 
 function hasAssistantOutput(message: AssistantMessage): boolean {
 	return message.content.some(
@@ -52,6 +84,11 @@ function eventStartsAssistantOutput(event: any): boolean {
 /**
  * Retry only requests whose output has not been exposed. Replaying after a
  * text or tool-call event would duplicate a partial answer in Pi's history.
+ *
+ * A workflow agent may spend minutes in a valid request, then lose the
+ * upstream connection before producing any output. Give that case a generous
+ * retry budget (15 attempts) with capped exponential backoff. Explicit Pi
+ * cancellation always wins immediately; it is never retried.
  */
 async function* retryFailedAssistantResponses(
 	createStream: () => AssistantMessageEventStream,
@@ -97,11 +134,12 @@ async function* retryFailedAssistantResponses(
 			lastFailure = error;
 			retryableFailure = true;
 		}
-		if (signal?.aborted) return;
+		if (signal?.aborted) throw abortedRequestError();
 		if (!retryableFailure) lastFailure = emptyAssistantResponseError(model);
 		if (attempt === MAX_RESPONSE_ATTEMPTS) {
 			throw lastFailure instanceof Error ? lastFailure : new Error(String(lastFailure));
 		}
+		if (!(await waitForRetry(retryDelayMs(attempt), signal))) throw abortedRequestError();
 	}
 }
 

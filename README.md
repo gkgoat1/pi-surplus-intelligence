@@ -105,6 +105,13 @@ Successful preferred responses clear the route's cooldown; cancellations do
 not count as failures. With no config file or an empty array, behavior is
 unchanged.
 
+For direct Surplus requests that fail **before any assistant output is
+exposed**, the extension retries up to 15 times. Retries use capped exponential
+backoff (500 ms, 1 s, 2 s, …, capped at 60 s). This is deliberately generous
+for long-running Pi agents and workflows, while avoiding duplicated text or
+tool calls: once output has started, a failure is reported rather than retried.
+An explicit Pi cancellation stops immediately and is never retried.
+
 The active `/model` selection is never changed by this feature. This prevents
 conflicts with other extensions calling `pi.setModel` or executing separate
 agents. In interactive Pi, the footer identifies the preferred upstream or its
