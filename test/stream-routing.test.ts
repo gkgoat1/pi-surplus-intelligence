@@ -248,6 +248,58 @@ test("does not retry a provider error after output has started", async () => {
 	assert.equal(helper.sink.events.at(-1).type, "error");
 });
 
+test("retries a claimed upstream error without exposing it as assistant output", async () => {
+	const selectedModel = model("gpt-5.6-terra");
+	let responsesCalls = 0;
+	const claimedError = completedMessage(selectedModel, "[Codex error: Our servers are currently overloaded. Please try again later.]");
+	const answer = completedMessage(selectedModel, "Retry succeeded");
+	const helper = helpersWith({
+		responsesToolStream: () => {
+			responsesCalls++;
+			const message = responsesCalls === 1 ? claimedError : answer;
+			return (async function* () {
+				yield { type: "start", partial: message };
+				yield { type: "text_delta", contentIndex: 0, delta: message.content[0].text, partial: message };
+				yield { type: "done", reason: "stop", message };
+			})();
+		},
+	});
+	configureEmptyPreferredRoutes("retry-claimed-upstream-error");
+
+	helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, {
+		sessionId: "retry-claimed-upstream-error",
+	});
+	await helper.sink.finished;
+
+	assert.equal(responsesCalls, 2);
+	assert.equal(helper.sink.events.filter((event) => event.type === "start").length, 1);
+	assert.equal(helper.sink.events.filter((event) => event.type === "text_delta").length, 1);
+	assert.equal(helper.sink.events.at(-1).message.content[0].text, "Retry succeeded");
+});
+
+test("does not treat ordinary Codex-error text as an upstream error", async () => {
+	const selectedModel = model("gpt-5.6-terra");
+	let responsesCalls = 0;
+	const answer = completedMessage(selectedModel, "I saw [Codex error: example] in a log.");
+	const helper = helpersWith({
+		responsesToolStream: () => {
+			responsesCalls++;
+			return (async function* () {
+				yield { type: "start", partial: answer };
+				yield { type: "text_delta", contentIndex: 0, delta: answer.content[0].text, partial: answer };
+				yield { type: "done", reason: "stop", message: answer };
+			})();
+		},
+	});
+	configureEmptyPreferredRoutes("ordinary-codex-error-text");
+
+	helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, { sessionId: "ordinary-codex-error-text" });
+	await helper.sink.finished;
+
+	assert.equal(responsesCalls, 1);
+	assert.equal(helper.sink.events.at(-1).type, "done");
+});
+
 test("retries an empty GPT-5 response without exposing its empty events", async () => {
 	const selectedModel = model("gpt-5.6-terra");
 	let responsesCalls = 0;

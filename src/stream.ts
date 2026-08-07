@@ -24,6 +24,7 @@ import { compressThinking, compressionConfig, compressionEligible } from "./thin
 import { analyzeResponse, notifyFingerprintWarning } from "./fingerprint.ts";
 import { usesOpenAIResponsesApi } from "./models.ts";
 import { createResponsesToolStream } from "./responses-tools.ts";
+import { claimedUpstreamError, upstreamClaimedErrorMessage } from "./upstream-error.ts";
 
 const MAX_RESPONSE_ATTEMPTS = 15;
 const INITIAL_RETRY_DELAY_MS = 500;
@@ -81,6 +82,14 @@ function eventStartsAssistantOutput(event: any): boolean {
 	);
 }
 
+const CLAIMED_ERROR_PREFIX = "[codex error:";
+
+/** Keep a possible claimed-error sentinel private until its completed message is checked. */
+function extendsClaimedErrorPrefix(text: string): boolean {
+	const normalized = text.trimStart().toLowerCase();
+	return normalized.startsWith(CLAIMED_ERROR_PREFIX) || CLAIMED_ERROR_PREFIX.startsWith(normalized);
+}
+
 /**
  * Retry only requests whose output has not been exposed. Replaying after a
  * text or tool-call event would duplicate a partial answer in Pi's history.
@@ -100,11 +109,17 @@ async function* retryFailedAssistantResponses(
 		const buffered: any[] = [];
 		let forwarded = false;
 		let retryableFailure = false;
+		let candidateText = "";
+		let bufferingClaimedError = false;
 		try {
 			for await (const event of createStream()) {
 				if (!forwarded) {
 					buffered.push(event);
-					if (eventStartsAssistantOutput(event)) {
+					if (event.type === "text_delta" && typeof event.delta === "string") {
+						candidateText += event.delta;
+						bufferingClaimedError ||= extendsClaimedErrorPrefix(candidateText);
+					}
+					if (eventStartsAssistantOutput(event) && !bufferingClaimedError) {
 						for (const bufferedEvent of buffered) yield bufferedEvent;
 						forwarded = true;
 					}
@@ -122,6 +137,17 @@ async function* retryFailedAssistantResponses(
 					break;
 				}
 				if (event.type !== "done") continue;
+				const claimedError = claimedUpstreamError(event.message);
+				if (claimedError) {
+					const error = upstreamClaimedErrorMessage(event.message, claimedError);
+					if (forwarded || signal?.aborted || attempt === MAX_RESPONSE_ATTEMPTS) {
+						yield { type: "error", reason: "error", error };
+						return;
+					}
+					lastFailure = error.errorMessage;
+					retryableFailure = true;
+					break;
+				}
 				if (forwarded || hasAssistantOutput(event.message)) {
 					if (!forwarded) for (const bufferedEvent of buffered) yield bufferedEvent;
 					return;

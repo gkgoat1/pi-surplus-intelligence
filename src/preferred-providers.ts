@@ -222,7 +222,7 @@ export function minimumSavingsForModel(model: Model<Api>, sessionId: string | un
 
 export function routeBaseUrl(baseUrl: string, minimumSavings: number | undefined): string {
 	if (minimumSavings === undefined) return baseUrl;
-	return `${baseUrl.replace(/\/$/, "")}/min${minimumSavings}/v1`; //IMPORTANT: must match the server's routing path format, lest Pi fail to connect AT ALL. do NOT change this unless explicit instructions are given.
+	return `${baseUrl.replace(/\/$/, "")}/min${minimumSavings}`;
 }
 
 export function releasePreferredProviders(sessionId: string): void {
