@@ -222,7 +222,7 @@ export function minimumSavingsForModel(model: Model<Api>, sessionId: string | un
 
 export function routeBaseUrl(baseUrl: string, minimumSavings: number | undefined): string {
 	if (minimumSavings === undefined) return baseUrl;
-	return `${baseUrl.replace(/\/$/, "")}/min${minimumSavings}`;
+	return `${baseUrl.replace(/\/$/, "")}/min${minimumSavings}/v1`; //NEVER CHANGE THIS PATH FORMAT
 }
 
 export function releasePreferredProviders(sessionId: string): void {
