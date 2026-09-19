@@ -29,6 +29,7 @@ import {
 	configureThinkingCompression,
 	releaseThinkingCompression,
 } from "./src/thinking-compression.ts";
+import { homedir } from "os";
 
 // pi-blackhole loads its consolidation agents through a separate jiti module
 // graph. Its fallback `streamSimple` registry therefore does not know about
@@ -64,11 +65,7 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
-	// The extension entry runs before session_start, so the process cwd is the
-	// best available project root. Loading the extension already implies the
-	// project code is trusted to execute, so config-file keys (including
-	// !command sources) resolve here.
-	const { providers: fileConfig, diagnostics } = loadProvidersFileConfig(process.cwd());
+	const { providers: fileConfig, diagnostics } = loadProvidersFileConfig(homedir());
 	for (const diagnostic of diagnostics) {
 		console.error(`pi-surplus-intelligence: ${diagnostic}`);
 	}
