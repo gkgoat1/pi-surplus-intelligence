@@ -13,8 +13,9 @@
  *   /model surplus-intelligence/kimi-k2.7-code
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { SURPLUS_INTELLIGENCE } from "./src/constants.ts";
+import { PROVIDERS } from "./src/constants.ts";
 import { fetchModels, fallbackModels } from "./src/models.ts";
+import { loadProvidersFileConfig, resolveProviderCredentials } from "./src/provider-config.ts";
 import { loadStreamHelpers } from "./src/loader.ts";
 import {
 	clearPreferredProviderStatus,
@@ -56,42 +57,64 @@ function notifyWithFlagMetadata(ui: { notify(message: string, type?: "info" | "w
 }
 
 export default async function (pi: ExtensionAPI) {
-	const [apiKey, helpers] = await Promise.all([
-		process.env[SURPLUS_INTELLIGENCE.apiKeyEnvVar],
-		loadStreamHelpers().catch(() => undefined),
-	]);
-
-	let models = fallbackModels(SURPLUS_INTELLIGENCE);
-
-	if (apiKey) {
-		try {
-			models = await fetchModels(SURPLUS_INTELLIGENCE, apiKey);
-		} catch {
-			// Keep fallback models if discovery fails so startup doesn't break.
-		}
-	}
-
+	const helpers = await loadStreamHelpers().catch(() => undefined);
 	if (!helpers) {
 		throw new Error(
-			"Failed to load the built-in openai-completions stream for Surplus Intelligence.",
+			"Failed to load the built-in openai-completions stream for model providers.",
 		);
+	}
+
+	// The extension entry runs before session_start, so the process cwd is the
+	// best available project root. Loading the extension already implies the
+	// project code is trusted to execute, so config-file keys (including
+	// !command sources) resolve here.
+	const { providers: fileConfig, diagnostics } = loadProvidersFileConfig(process.cwd());
+	for (const diagnostic of diagnostics) {
+		console.error(`pi-surplus-intelligence: ${diagnostic}`);
 	}
 
 	const streamSimple = createSurplusStreamSimple(helpers);
 
-	// Register before calling Pi so pi-blackhole can use the custom stream from
-	// its isolated agent runtime even when it initialized before or after us.
-	registerBlackholeStreamBridge(SURPLUS_INTELLIGENCE.api, streamSimple);
+	for (const descriptor of PROVIDERS) {
+		if (fileConfig[descriptor.id]?.enabled === false) continue;
+		const credentials = resolveProviderCredentials(descriptor, fileConfig[descriptor.id]);
 
-	pi.registerProvider(SURPLUS_INTELLIGENCE.id, {
-		name: SURPLUS_INTELLIGENCE.name,
-		baseUrl: SURPLUS_INTELLIGENCE.baseUrl,
-		apiKey: `$${SURPLUS_INTELLIGENCE.apiKeyEnvVar}`,
-		api: SURPLUS_INTELLIGENCE.api,
-		authHeader: true,
-		models,
-		streamSimple,
-	});
+		let models = fallbackModels(descriptor);
+		if (credentials.ok) {
+			try {
+				models = await fetchModels(descriptor, credentials.apiKey);
+			} catch {
+				// Keep fallback models if discovery fails so startup doesn't break.
+			}
+		}
+
+		// Register before calling Pi so pi-blackhole can use the custom stream from
+		// its isolated agent runtime even when it initialized before or after us.
+		registerBlackholeStreamBridge(descriptor.api, streamSimple);
+
+		// Keep the $VAR template for environment-sourced keys so Pi's auth UI
+		// reports the environment source and key rotation works without a
+		// restart. Config-sourced keys (including templates and commands) are
+		// passed as resolved literals.
+		const envTemplate = `$${descriptor.apiKeyEnvVar}`;
+		const fileKey = fileConfig[descriptor.id]?.apiKey;
+		const apiKey =
+			typeof fileKey === "string" && fileKey.trim().length > 0 && fileKey !== envTemplate
+				? credentials.ok && credentials.source === "config"
+					? credentials.apiKey
+					: envTemplate
+				: envTemplate;
+
+		pi.registerProvider(descriptor.id, {
+			name: descriptor.name,
+			baseUrl: descriptor.baseUrl,
+			apiKey,
+			api: descriptor.api,
+			authHeader: true,
+			models,
+			streamSimple,
+		});
+	}
 
 	pi.on("session_start", (event, ctx) => {
 		const [preferredDiagnostic, compressionDiagnostic] = [
