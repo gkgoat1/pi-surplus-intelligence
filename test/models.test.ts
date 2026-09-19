@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { INFERHUB, SURPLUS_INTELLIGENCE } from "../src/constants.ts";
-import { fallbackModels, mapGatewayModel, usesOpenAIResponsesApi } from "../src/models.ts";
+import { clampGatewayThinkingLevel, fallbackModels, mapGatewayModel, usesOpenAIResponsesApi } from "../src/models.ts";
 
 test("uses the Responses API for GPT-5 and later", () => {
 	for (const id of ["gpt-5", "gpt-5.6-luna-pro", "GPT-12-preview"]) {
@@ -13,6 +13,67 @@ test("keeps pre-GPT-5 and non-GPT models on chat completions", () => {
 	for (const id of ["gpt-4.1", "gpt-4o", "kimi-k2.7-code", "my-gpt-5-proxy"]) {
 		assert.equal(usesOpenAIResponsesApi(id), false, id);
 	}
+});
+
+test("InferHub thinkingLevelMap advertises only catalog reasoning_levels, nulling the rest", () => {
+	const mapped = mapGatewayModel(
+		{
+			id: "ag/gemini-3.6-flash-high",
+			modality: "text",
+			reasoning_levels: ["minimal", "low", "medium", "high"],
+			input_token_limit: 1_000_000,
+			max_output_tokens: 65_536,
+			upstream_label: "Gemini 3.6 Flash",
+			pricing: {},
+		},
+		INFERHUB,
+	);
+	assert.equal(mapped.reasoning, true);
+	assert.equal(mapped.thinkingLevelMap!.minimal, "minimal");
+	assert.equal(mapped.thinkingLevelMap!.high, "high");
+	assert.equal(mapped.thinkingLevelMap!.max, null);
+	assert.equal(mapped.thinkingLevelMap!.off, null);
+	assert.equal(mapped.thinkingLevelMap!.xhigh, null);
+});
+
+test("clampGatewayThinkingLevel lets unmapped models pass through raw (Surplus compat)", () => {
+	assert.equal(clampGatewayThinkingLevel({ reasoning: true }, "max"), "max");
+	assert.equal(clampGatewayThinkingLevel({ reasoning: true }, "xhigh"), "xhigh");
+	assert.equal(clampGatewayThinkingLevel({}, "low"), "low");
+});
+
+test("clamps to the nearest advertised InferHub level, upward first", () => {
+	const model = {
+		reasoning: true,
+		thinkingLevelMap: {
+			off: null as null,
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+			max: "max",
+			xhigh: null as null,
+		},
+	};
+	assert.equal(clampGatewayThinkingLevel(model, "max"), "max");
+	assert.equal(clampGatewayThinkingLevel(model, "medium"), "medium");
+	assert.equal(clampGatewayThinkingLevel(model, "xhigh"), "max"); // nearest up
+	assert.equal(clampGatewayThinkingLevel(model, "off"), "minimal"); // off unsupported, round up
+
+	const partial = {
+		reasoning: true,
+		thinkingLevelMap: {
+			off: null as null,
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+			max: null as null,
+			xhigh: null as null,
+		},
+	};
+	assert.equal(clampGatewayThinkingLevel(partial, "max"), "high");
+	assert.equal(clampGatewayThinkingLevel(partial, "xhigh"), "high");
 });
 
 test("maps Surplus catalog entries onto the provider's API", () => {

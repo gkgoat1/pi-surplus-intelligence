@@ -421,3 +421,53 @@ test("keeps pre-GPT-5 streams on chat completions and preserves the completed an
 	assert.equal(helper.sink.events.at(-1).type, "done");
 	assert.equal(helper.sink.events.at(-1).message.content[0].text, "Chat completions answer");
 });
+test("clamps InferHub xhigh to an advertised level instead of sending a raw contract-violating value", async () => {
+	const selectedModel = model("ag/gemini-3.6-flash-high", "inferhub");
+	selectedModel.reasoning = true;
+	selectedModel.thinkingLevelMap = { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", max: null, xhigh: null };
+	const answer = completedMessage(selectedModel, "ok");
+	const source = (async function* () {
+		yield { type: "start", partial: answer };
+		yield { type: "done", reason: "stop", message: answer };
+	})();
+	const helper = helpersWith({
+		completionsStream: () => source,
+	});
+	configureEmptyPreferredRoutes("inferhub-clamped");
+
+	helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, {
+		sessionId: "inferhub-clamped",
+		reasoning: "xhigh",
+	});
+	await helper.sink.finished;
+
+	// xhigh is clamped upward to "high" (max advertised is high, max null).
+	assert.equal(helper.calls[0].options.reasoningEffort, "high");
+	assert.equal(helper.calls[0].options.reasoningSummary, undefined);
+	// onPayload injects include_reasoning and reasoning_effort.
+	const payload = helper.calls[0].options.onPayload({} as any, selectedModel) as any;
+	assert.equal(payload.include_reasoning, "summary");
+	assert.equal(payload.reasoning_effort, "high");
+});
+
+test("surplus models pass max through unchanged when no thinkingLevelMap exists", async () => {
+	const selectedModel = model("gpt-4.1"); // surplus-intelligence, no map
+	selectedModel.reasoning = true;
+	const answer = completedMessage(selectedModel, "ok");
+	const source = (async function* () {
+		yield { type: "start", partial: answer };
+		yield { type: "done", reason: "stop", message: answer };
+	})();
+	const helper = helpersWith({
+		completionsStream: () => source,
+	});
+	configureEmptyPreferredRoutes("surplus-max-pass-through");
+
+	helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, {
+		sessionId: "surplus-max-pass-through",
+		reasoning: "max",
+	});
+	await helper.sink.finished;
+
+	assert.equal(helper.calls[0].options.reasoningEffort, "max");
+});

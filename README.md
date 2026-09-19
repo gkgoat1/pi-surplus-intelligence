@@ -46,9 +46,9 @@ model list) so a key added later via Pi's auth flow works without touching the
 extension. Set `"providers": { "<id>": { "enabled": false } }` in the config
 file to hide a provider entirely.
 
-Use `--thinking <level>` to request reasoning (`off`, `minimal`, `low`, `medium`,
+`Use `--thinking <level>` to request reasoning (`off`, `minimal`, `low`, `medium`,
 `high`, `xhigh`, `max`). Only models that advertise reasoning support will expose
-a reasoning preview.
+a reasoning preview. InferHub models with `reasoning_levels` in their catalog
 
 ## Model discovery
 

@@ -11,6 +11,59 @@ function parseCost(value: unknown): number {
 	return Number.isFinite(n) ? n * 1_000_000 : 0;
 }
 
+const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+/**
+ * Build a pi-ai `thinkingLevelMap` from InferHub's advertised
+ * `reasoning_levels`. Levels InferHub does not list are explicitly null so
+ * neither pi-ai's clamping nor this extension's effort clamp ever sends an
+ * unsupported effort (InferHub rejects nothing today, but only advertised
+ * levels are contractual). "off" stays disabled unless listed — InferHub's
+ * reasoning models always reason.
+ */
+function inferhubThinkingLevelMap(levels: unknown): Record<string, string | null> {
+	const supported = new Set(
+		(Array.isArray(levels) ? levels : []).filter((l): l is string => typeof l === "string"),
+	);
+	const map: Record<string, string | null> = {};
+	for (const level of PI_THINKING_LEVELS) {
+		map[level] = supported.has(level) ? level : null;
+	}
+	return map;
+}
+
+/**
+ * Clamp a requested thinking level to what the model supports, mirroring
+ * pi-ai's `clampThinkingLevel` (nearest supported level, searching upward
+ * first). Models without an explicit `thinkingLevelMap` (Surplus catalog
+ * entries) pass the level through unchanged, preserving their historical
+ * behavior; InferHub models carry a map built from `reasoning_levels`.
+ */
+export function clampGatewayThinkingLevel(model: any, level: string): string | undefined {
+	const map = model?.thinkingLevelMap as Record<string, string | null> | undefined;
+	if (!map) return level;
+	const available = PI_THINKING_LEVELS.filter((l) => {
+		const mapped = map[l];
+		if (mapped === null) return false;
+		// pi-ai semantics: xhigh/max require an explicit mapping; other levels
+		// with no mapping at all are treated as pass-through supported.
+		if (l === "xhigh" || l === "max") return mapped !== undefined;
+		return true;
+	});
+	if ((available as string[]).includes(level)) return level;
+	const requestedIndex = PI_THINKING_LEVELS.indexOf(level as (typeof PI_THINKING_LEVELS)[number]);
+	if (requestedIndex === -1) return available[0];
+	for (let i = requestedIndex; i < PI_THINKING_LEVELS.length; i++) {
+		const candidate = PI_THINKING_LEVELS[i];
+		if ((available as string[]).includes(candidate)) return candidate;
+	}
+	for (let i = requestedIndex - 1; i >= 0; i--) {
+		const candidate = PI_THINKING_LEVELS[i];
+		if ((available as string[]).includes(candidate)) return candidate;
+	}
+	return available[0];
+}
+
 function gatewayCompat(canReasonEffort: boolean) {
 	return {
 		maxTokensField: "max_tokens",
@@ -84,6 +137,7 @@ function mapInferhubEntry(model: unknown, descriptor: ProviderDescriptor): any {
 		api: descriptor.api,
 		name: typeof m.upstream_label === "string" && m.upstream_label ? m.upstream_label : m.id,
 		reasoning: canReason,
+		thinkingLevelMap: canReason ? inferhubThinkingLevelMap(reasoningLevels) : undefined,
 		input,
 		cost: {
 			input: parseCost(m.pricing?.min_ask_in),
@@ -153,6 +207,7 @@ function inferhubFallbackModels(descriptor: ProviderDescriptor): any[] {
 			api: descriptor.api,
 			name: "Gemini 3.7 Flash",
 			reasoning: true,
+			thinkingLevelMap: inferhubThinkingLevelMap(["minimal", "low", "medium", "high"]),
 			input: ["text", "image"] as ("text" | "image")[],
 			cost: { input: 0, output: 0 },
 			contextWindow: 1_000_000,

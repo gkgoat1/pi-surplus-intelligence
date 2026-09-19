@@ -23,7 +23,7 @@ import type { StreamHelpers } from "./types.ts";
 import { PROVIDER_BY_ID } from "./constants.ts";
 import { compressThinking, compressionConfig, compressionEligible } from "./thinking-compression.ts";
 import { analyzeResponse, notifyFingerprintWarning } from "./fingerprint.ts";
-import { usesOpenAIResponsesApi } from "./models.ts";
+import { clampGatewayThinkingLevel, usesOpenAIResponsesApi } from "./models.ts";
 import { createResponsesToolStream } from "./responses-tools.ts";
 import { claimedUpstreamError, upstreamClaimedErrorMessage } from "./upstream-error.ts";
 
@@ -228,7 +228,8 @@ export function createGatewayStreamSimple(
 				}
 				const originalOnPayload = upstreamOptions.onPayload;
 				const reasoning = options?.reasoning;
-				const reasoningEffort = reasoning && model.reasoning ? reasoning : undefined;
+				const clamped = reasoning && model.reasoning ? clampGatewayThinkingLevel(model, reasoning) : undefined;
+				const reasoningEffort = clamped === "off" ? undefined : clamped;
 
 				const createBuiltInStream = () =>
 					route
