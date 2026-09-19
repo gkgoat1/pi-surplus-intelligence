@@ -13,7 +13,7 @@
  *   /model surplus-intelligence/kimi-k2.7-code
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { API_KEY_ENV_VAR, PROVIDER_ID, PROVIDER_NAME, BASE_URL, API } from "./src/constants.ts";
+import { SURPLUS_INTELLIGENCE } from "./src/constants.ts";
 import { fetchModels, fallbackModels } from "./src/models.ts";
 import { loadStreamHelpers } from "./src/loader.ts";
 import {
@@ -57,15 +57,15 @@ function notifyWithFlagMetadata(ui: { notify(message: string, type?: "info" | "w
 
 export default async function (pi: ExtensionAPI) {
 	const [apiKey, helpers] = await Promise.all([
-		process.env[API_KEY_ENV_VAR],
+		process.env[SURPLUS_INTELLIGENCE.apiKeyEnvVar],
 		loadStreamHelpers().catch(() => undefined),
 	]);
 
-	let models = fallbackModels();
+	let models = fallbackModels(SURPLUS_INTELLIGENCE);
 
 	if (apiKey) {
 		try {
-			models = await fetchModels(apiKey);
+			models = await fetchModels(SURPLUS_INTELLIGENCE, apiKey);
 		} catch {
 			// Keep fallback models if discovery fails so startup doesn't break.
 		}
@@ -81,13 +81,13 @@ export default async function (pi: ExtensionAPI) {
 
 	// Register before calling Pi so pi-blackhole can use the custom stream from
 	// its isolated agent runtime even when it initialized before or after us.
-	registerBlackholeStreamBridge(API, streamSimple);
+	registerBlackholeStreamBridge(SURPLUS_INTELLIGENCE.api, streamSimple);
 
-	pi.registerProvider(PROVIDER_ID, {
-		name: PROVIDER_NAME,
-		baseUrl: BASE_URL,
-		apiKey: `$${API_KEY_ENV_VAR}`,
-		api: API,
+	pi.registerProvider(SURPLUS_INTELLIGENCE.id, {
+		name: SURPLUS_INTELLIGENCE.name,
+		baseUrl: SURPLUS_INTELLIGENCE.baseUrl,
+		apiKey: `$${SURPLUS_INTELLIGENCE.apiKeyEnvVar}`,
+		api: SURPLUS_INTELLIGENCE.api,
 		authHeader: true,
 		models,
 		streamSimple,

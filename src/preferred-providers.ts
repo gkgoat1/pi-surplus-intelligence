@@ -10,7 +10,9 @@ import type {
 	ProviderHeaders,
 	SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { PROVIDER_ID } from "./constants.ts";
+import { SURPLUS_INTELLIGENCE } from "./constants.ts";
+
+const PROVIDER_ID = SURPLUS_INTELLIGENCE.id;
 
 const CONFIG_PATH = [".pi", "surplus-intelligence.json"];
 const STATUS_KEY = "surplus-intelligence";

@@ -88,8 +88,8 @@ test("uses the global saving minimum and a per-model override", () => {
 
 	assert.equal(minimumSavingsForModel(defaultModel, "savings-routing"), 50);
 	assert.equal(minimumSavingsForModel(cheapModel, "savings-routing"), 80);
-	assert.equal(routeBaseUrl(defaultModel.baseUrl, minimumSavingsForModel(defaultModel, "savings-routing")), "https://example.test/v1/min50");
-	assert.equal(routeBaseUrl(cheapModel.baseUrl, minimumSavingsForModel(cheapModel, "savings-routing")), "https://example.test/v1/min80");
+	assert.equal(routeBaseUrl(defaultModel.baseUrl, minimumSavingsForModel(defaultModel, "savings-routing")), "https://example.test/v1/min50/v1");
+	assert.equal(routeBaseUrl(cheapModel.baseUrl, minimumSavingsForModel(cheapModel, "savings-routing")), "https://example.test/v1/min80/v1");
 });
 
 test("uses the first configured healthy preferred route", async () => {
