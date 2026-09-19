@@ -121,6 +121,40 @@ test("backs off a failed route and advances to the next preferred provider", asy
 	recordPreferredRouteSuccess(second!);
 });
 
+test("InferHub models never get the savings-routing rewrite", () => {
+	const cwd = temporaryProject({ routing: { minimumSavings: 50 } });
+	configure("inferhub-no-savings", cwd, []);
+	const inferhub = model("inferhub", "ag/gemini-3.7-flash-high");
+	assert.equal(minimumSavingsForModel(inferhub, "inferhub-no-savings"), undefined);
+});
+
+test("InferHub models match preferred fallback routes like Surplus models", async () => {
+	const cwd = temporaryProject({ preferredProviders: [{ provider: "first" }] });
+	const inferhub = model("inferhub", "ag/gemini-3.7-flash-high");
+	configure("inferhub-fallback", cwd, [model("first", inferhub.id)]);
+
+	const route = await selectPreferredRoute(inferhub, "inferhub-fallback");
+	assert.equal(route?.model.provider, "first");
+	assert.equal(route?.model.id, inferhub.id);
+});
+
+test("route health is isolated per source provider for the same model id", async () => {
+	const cwd = temporaryProject({ preferredProviders: [{ provider: "first" }] });
+	const surplus = model("surplus-intelligence", "shared-id");
+	const inferhub = model("inferhub", "shared-id");
+	configure("health-isolation", cwd, [model("first", "shared-id")]);
+
+	const surplusRoute = await selectPreferredRoute(surplus, "health-isolation", 100);
+	assert.ok(surplusRoute);
+	recordPreferredRouteFailure(surplusRoute, 100, () => 1);
+
+	// The Surplus route is cooling down, but InferHub's route to the same
+	// target model is a separate health key and remains available.
+	assert.equal(await selectPreferredRoute(surplus, "health-isolation", 101), undefined);
+	const inferhubRoute = await selectPreferredRoute(inferhub, "health-isolation", 101);
+	assert.equal(inferhubRoute?.model.provider, "first");
+});
+
 test("missing configuration leaves Surplus unchanged", async () => {
 	const cwd = temporaryProject();
 	const surplus = model("surplus-intelligence", "kimi-k2.7-code");

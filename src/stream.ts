@@ -20,6 +20,7 @@ import {
 	type PreferredRoute,
 } from "./preferred-providers.ts";
 import type { StreamHelpers } from "./types.ts";
+import { PROVIDER_BY_ID } from "./constants.ts";
 import { compressThinking, compressionConfig, compressionEligible } from "./thinking-compression.ts";
 import { analyzeResponse, notifyFingerprintWarning } from "./fingerprint.ts";
 import { usesOpenAIResponsesApi } from "./models.ts";
@@ -68,8 +69,12 @@ function hasAssistantOutput(message: AssistantMessage): boolean {
 	);
 }
 
+function providerDisplayName(model: Model<Api>): string {
+	return PROVIDER_BY_ID.get(model.provider)?.name ?? model.provider;
+}
+
 function emptyAssistantResponseError(model: Model<Api>): Error {
-	return new Error(`Surplus Intelligence ${model.id} returned no assistant text or tool calls`);
+	return new Error(`${providerDisplayName(model)} ${model.id} returned no assistant text or tool calls`);
 }
 
 function eventStartsAssistantOutput(event: any): boolean {
@@ -183,13 +188,13 @@ function optionsForUpstream(
 	};
 }
 
-export function createSurplusStreamSimple(
+export function createGatewayStreamSimple(
 	helpers: StreamHelpers,
 ): (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream {
 	const { completionsStream, responsesToolStream: responsesToolStreamHelper, createAssistantMessageEventStream } = helpers;
 	const responsesDirectStream = responsesToolStreamHelper ?? createResponsesToolStream(createAssistantMessageEventStream);
 
-	return function surplusStreamSimple(
+	return function gatewayStreamSimple(
 		model: Model<Api>,
 		context: Context,
 		options?: SimpleStreamOptions,

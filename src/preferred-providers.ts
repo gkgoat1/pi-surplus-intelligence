@@ -10,9 +10,7 @@ import type {
 	ProviderHeaders,
 	SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { SURPLUS_INTELLIGENCE } from "./constants.ts";
-
-const PROVIDER_ID = SURPLUS_INTELLIGENCE.id;
+import { PROVIDER_BY_ID } from "./constants.ts";
 
 const CONFIG_PATH = [".pi", "surplus-intelligence.json"];
 const STATUS_KEY = "surplus-intelligence";
@@ -216,7 +214,8 @@ export function configurePreferredProviders(
 }
 
 export function minimumSavingsForModel(model: Model<Api>, sessionId: string | undefined): number | undefined {
-	if (model.provider !== PROVIDER_ID) return undefined;
+	// Savings routing (`/min{N}/v1`) exists only on providers that advertise it.
+	if (!PROVIDER_BY_ID.get(model.provider)?.supportsSavingsRouting) return undefined;
 	const scope = scopeFor(sessionId)?.[1];
 	if (!scope) return undefined;
 	return scope.config.routing.models[model.id] ?? scope.config.routing.minimumSavings;
@@ -261,7 +260,10 @@ function matchingRoutes(
 	surplusModel: Model<Api>,
 	now: number,
 ): Array<{ key: string; model: Model<Api>; providerName: string; modelName: string }> {
-	if (surplusModel.provider !== PROVIDER_ID) return [];
+	// Preferred-provider fallback applies to every provider this extension
+	// registers; a route target must be some *other* Pi provider.
+	const sourceProvider = PROVIDER_BY_ID.get(surplusModel.provider);
+	if (!sourceProvider) return [];
 
 	const routes: Array<{ key: string; model: Model<Api>; providerName: string; modelName: string }> = [];
 	for (const entry of scope.config.preferredProviders) {
@@ -269,7 +271,7 @@ function matchingRoutes(
 		const model = scope.modelRegistry.find(entry.provider, modelId);
 		if (
 			!model ||
-			model.provider === PROVIDER_ID ||
+			PROVIDER_BY_ID.has(model.provider) ||
 			!scope.modelRegistry.hasConfiguredAuth(model)
 		) {
 			continue;
@@ -382,7 +384,8 @@ export function updatePreferredProviderStatus(
 	const selectedScope = scopeFor(sessionId);
 	if (!selectedScope) return;
 	const [, scope] = selectedScope;
-	if (scope.mode !== "tui" || model?.provider !== PROVIDER_ID) {
+	const sourceProvider = model ? PROVIDER_BY_ID.get(model.provider) : undefined;
+	if (scope.mode !== "tui" || !model || !sourceProvider) {
 		scope.ui.setStatus(STATUS_KEY, undefined);
 		return;
 	}
@@ -393,7 +396,7 @@ export function updatePreferredProviderStatus(
 
 	const healthy = matchingRoutes("", scope, model, now)[0];
 	if (healthy) {
-		scope.ui.setStatus(STATUS_KEY, `Surplus fallback: ${healthy.providerName} ${healthy.modelName}`);
+		scope.ui.setStatus(STATUS_KEY, `${sourceProvider.name} fallback: ${healthy.providerName} ${healthy.modelName}`);
 		return;
 	}
 
@@ -408,8 +411,8 @@ export function updatePreferredProviderStatus(
 		}
 	}
 	const text = earliestRetryAt
-		? `Surplus fallback: preferred route retrying in ${formatDelay(earliestRetryAt - now)}`
-		: "Surplus upstream";
+		? `${sourceProvider.name} fallback: preferred route retrying in ${formatDelay(earliestRetryAt - now)}`
+		: `${sourceProvider.name} upstream`;
 	scope.ui.setStatus(STATUS_KEY, text);
 }
 
@@ -424,7 +427,8 @@ export function setPreferredRouteStatus(route: PreferredRoute | undefined, surpl
 	if (scope.mode !== "tui") return;
 	// Pi's status UI does not have a dedicated per-stream channel; this is a
 	// best-effort indication for the foreground session only.
-	scope.ui.setStatus(STATUS_KEY, `Surplus fallback: ${route.providerName} ${route.modelName}`);
+	const sourceName = PROVIDER_BY_ID.get(surplusModel.provider)?.name ?? surplusModel.provider;
+	scope.ui.setStatus(STATUS_KEY, `${sourceName} fallback: ${route.providerName} ${route.modelName}`);
 }
 
 export function clearPreferredProviderStatus(sessionId?: string): void {

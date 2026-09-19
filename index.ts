@@ -24,7 +24,7 @@ import {
 	updatePreferredProviderStatus,
 } from "./src/preferred-providers.ts";
 import { configureFingerprint, releaseFingerprint } from "./src/fingerprint.ts";
-import { createSurplusStreamSimple } from "./src/stream.ts";
+import { createGatewayStreamSimple } from "./src/stream.ts";
 import {
 	configureThinkingCompression,
 	releaseThinkingCompression,
@@ -73,7 +73,7 @@ export default async function (pi: ExtensionAPI) {
 		console.error(`pi-surplus-intelligence: ${diagnostic}`);
 	}
 
-	const streamSimple = createSurplusStreamSimple(helpers);
+	const streamSimple = createGatewayStreamSimple(helpers);
 
 	for (const descriptor of PROVIDERS) {
 		if (fileConfig[descriptor.id]?.enabled === false) continue;

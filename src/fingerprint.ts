@@ -511,7 +511,7 @@ export function analyzeResponse(
 		warningKey = `${expected}|${match.predicted}`;
 		const flagText = match.flags.length ? ` Notably: ${match.flags.join("; ")}.` : "";
 		warning =
-			`Surplus "${modelId}" responded like a ${match.predicted} model, not ${expected} ` +
+			`Gateway "${modelId}" responded like a ${match.predicted} model, not ${expected} ` +
 			`(fingerprint mismatch, ~${confidencePct}% confidence).${flagText}`;
 	}
 

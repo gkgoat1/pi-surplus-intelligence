@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import type { Model } from "@earendil-works/pi-ai";
 import { configurePreferredProviders } from "../src/preferred-providers.ts";
-import { createSurplusStreamSimple } from "../src/stream.ts";
+import { createGatewayStreamSimple } from "../src/stream.ts";
 
 class RecordingStream implements AsyncIterable<any> {
 	readonly events: any[] = [];
@@ -28,12 +31,12 @@ class RecordingStream implements AsyncIterable<any> {
 	}
 }
 
-function model(id: string): Model<any> {
+function model(id: string, provider = "surplus-intelligence"): Model<any> {
 	return {
 		id,
 		name: id,
-		provider: "surplus-intelligence",
-		api: "surplus-openai-completions",
+		provider,
+		api: provider === "inferhub" ? "inferhub-openai-completions" : "surplus-openai-completions",
 		baseUrl: "https://example.test/v1",
 		reasoning: true,
 		input: ["text"],
@@ -99,17 +102,17 @@ function helpersWith(overrides: {
 	responsesToolStream?: (model: any, context: any, options: any) => AsyncIterable<any>;
 }) {
 	let sink: RecordingStream | undefined;
-	const calls: Array<{ api: string; options: any }> = [];
+	const calls: Array<{ api: string; options: any; baseUrl?: string }> = [];
 	const completionsStream = overrides.completionsStream ?? (() => { throw new Error("completionsStream not expected"); });
 	const responsesToolStream = overrides.responsesToolStream ?? (() => { throw new Error("responsesToolStream not expected"); });
 	return {
-		streamSimple: createSurplusStreamSimple({
+		streamSimple: createGatewayStreamSimple({
 			completionsStream: (_model: any, _context: any, options: any) => {
-				calls.push({ api: "completions", options });
+				calls.push({ api: "completions", options, baseUrl: _model.baseUrl });
 				return completionsStream(_model, _context, options) as any;
 			},
 			responsesToolStream: (_model: any, _context: any, options: any) => {
-				calls.push({ api: "responses-tools", options });
+				calls.push({ api: "responses-tools", options, baseUrl: _model.baseUrl });
 				return responsesToolStream(_model, _context, options) as any;
 			},
 			createAssistantMessageEventStream() {
@@ -355,6 +358,44 @@ test("stops retrying immediately when Pi aborts the request", async () => {
 	assert.equal(responsesCalls, 1);
 	assert.equal(helper.sink.events.at(-1).type, "error");
 	assert.equal(helper.sink.events.at(-1).reason, "aborted");
+});
+
+test("rewrites Surplus base URLs for savings routing but leaves InferHub direct", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-surplus-savings-"));
+	try {
+		mkdirSync(join(cwd, ".pi"));
+		writeFileSync(join(cwd, ".pi", "surplus-intelligence.json"), JSON.stringify({ routing: { minimumSavings: 50 } }));
+		const configureTrusted = (sessionId: string) =>
+			configurePreferredProviders({
+				sessionId,
+				cwd,
+				modelRegistry: {} as any,
+				mode: "print",
+				ui: { setStatus() {} } as any,
+				trusted: true,
+			});
+
+		for (const [sessionId, selectedModel, expectedBaseUrl] of [
+			["savings-surplus", model("kimi-k2.7-code"), "https://example.test/v1/min50/v1"],
+			["savings-inferhub", model("ag/gemini-3.7-flash-high", "inferhub"), "https://example.test/v1"],
+		] as const) {
+			const answer = completedMessage(selectedModel, "pong");
+			const helper = helpersWith({
+				completionsStream: () =>
+					(async function* () {
+						yield { type: "start", partial: answer };
+						yield { type: "text_delta", contentIndex: 0, delta: "pong", partial: answer };
+						yield { type: "done", reason: "stop", message: answer };
+					})() as any,
+			});
+			configureTrusted(sessionId);
+			helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, { sessionId });
+			await helper.sink.finished;
+			assert.equal(helper.calls[0].baseUrl, expectedBaseUrl, `${selectedModel.provider} base URL`);
+		}
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
 });
 
 test("keeps pre-GPT-5 streams on chat completions and preserves the completed answer", async () => {
