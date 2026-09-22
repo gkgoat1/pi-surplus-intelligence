@@ -152,6 +152,16 @@ conflicts with other extensions calling `pi.setModel` or executing separate
 agents. In interactive Pi, the footer identifies the preferred upstream or its
 cooldown state. The status is not emitted in print, JSON, or RPC modes.
 
+## Pi version compatibility
+
+This extension supports Pi >= 0.84.0, including Pi >= 0.86's normalized
+`TranscriptContext` for custom providers (system prompt and tool declarations
+folded into `role: "system"` transcript entries instead of `Context.systemPrompt`
+/ `Context.tools`). The GPT-5+ direct-Responses fallback
+(`src/responses-tools.ts`) detects which shape the resolved `@earendil-works/pi-ai`
+provides and reads the current prompt/tools accordingly, so both old and new Pi
+versions get correct system prompts and tool declarations on that path.
+
 ## pi-blackhole compatibility
 
 `pi-blackhole` runs its background consolidation agents in an isolated module
@@ -161,7 +171,7 @@ process-wide bridge during startup. Surplus Intelligence or InferHub can
 therefore be used as the primary model while `pi-blackhole` observer,
 reflector, and dropper agents are enabled, regardless of package load order.
 
-## Installation
+
 
 This extension is project-local. From the repo root run:
 

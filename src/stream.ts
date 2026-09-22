@@ -191,8 +191,8 @@ function optionsForUpstream(
 export function createGatewayStreamSimple(
 	helpers: StreamHelpers,
 ): (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream {
-	const { completionsStream, responsesToolStream: responsesToolStreamHelper, createAssistantMessageEventStream } = helpers;
-	const responsesDirectStream = responsesToolStreamHelper ?? createResponsesToolStream(createAssistantMessageEventStream);
+	const { completionsStream, responsesToolStream: responsesToolStreamHelper, createAssistantMessageEventStream, transcript } = helpers;
+	const responsesDirectStream = responsesToolStreamHelper ?? createResponsesToolStream(createAssistantMessageEventStream, transcript);
 
 	return function gatewayStreamSimple(
 		model: Model<Api>,

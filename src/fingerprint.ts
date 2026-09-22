@@ -495,7 +495,9 @@ export function analyzeResponse(
 		details: {
 			expectedFamily: expected,
 			predictedFamily: match.predicted,
-			declaredModel: message.responseModel,
+			// pi-ai >= ~0.86 types AssistantMessageDiagnostic.details as JsonObject
+			// (no `undefined`); coalesce to null so this stays valid across versions.
+			declaredModel: message.responseModel ?? null,
 			confidence: confidencePct,
 			margin: Number(match.margin.toFixed(2)),
 			textChars: textBody.length,

@@ -118,3 +118,72 @@ test("preserves Pi 0.84 sampling parameters and response hooks", async () => {
 		globalThis.fetch = originalFetch;
 	}
 });
+test("reads the system prompt and tools from a normalized TranscriptContext via injected helpers", async () => {
+	const originalFetch = globalThis.fetch;
+	const requests: any[] = [];
+	globalThis.fetch = (async (_url, init) => {
+		requests.push(JSON.parse(String(init?.body)));
+		return new Response(JSON.stringify({
+			id: "resp_transcript", status: "completed", usage: {}, output: [],
+		}), { status: 200 });
+	}) as typeof fetch;
+
+	// Simulates pi-ai >= 0.86: no .systemPrompt/.tools fields, only .messages,
+	// with the prompt/tools folded into a leading role: "system" entry.
+	const transcriptContext = {
+		messages: [
+			{ role: "system", content: "You are a helpful assistant.", toolsAdded: [{ name: "bash", description: "Run shell", parameters: { type: "object" } }] },
+			{ role: "user", content: "hi", timestamp: 0 },
+		],
+	} as any;
+	const transcript = {
+		getCurrentSystemPrompt: (messages: readonly any[]) => messages.find((m) => m.role === "system")?.content ?? "",
+		getCurrentTools: (messages: readonly any[]) => messages.flatMap((m) => m.toolsAdded ?? []),
+	};
+
+	try {
+		const sink: { current?: RecordingStream } = {};
+		createResponsesToolStream(streamFactory(sink), transcript)(model, transcriptContext, { apiKey: "test-key" });
+		await sink.current!.wait();
+
+		// The leading system-role message must not be re-emitted as a raw
+		// message.content entry (it was already extracted into the prompt).
+		assert.deepEqual(requests[0].input.map((entry: any) => entry.role ?? entry.type), ["developer", "user"]);
+		assert.equal(requests[0].input[0].content, "You are a helpful assistant.");
+		assert.equal(requests[0].tools[0].name, "bash");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("skips a mid-transcript system-role message instead of misreading it as a tool result", async () => {
+	const originalFetch = globalThis.fetch;
+	const requests: any[] = [];
+	globalThis.fetch = (async (_url, init) => {
+		requests.push(JSON.parse(String(init?.body)));
+		return new Response(JSON.stringify({ id: "resp_mid", status: "completed", usage: {}, output: [] }), { status: 200 });
+	}) as typeof fetch;
+
+	// No transcript helpers injected (as if pi-ai < 0.86 resolved), but a
+	// system-role message still appears mid-transcript. Without the guard this
+	// would hit the toolResult branch and throw on `message.toolCallId.split`.
+	const context = {
+		messages: [
+			{ role: "user", content: "hi", timestamp: 0 },
+			{ role: "system", content: "later instructions" },
+			{ role: "user", content: "still there?", timestamp: 1 },
+		],
+	} as any;
+
+	try {
+		const sink: { current?: RecordingStream } = {};
+		createResponsesToolStream(streamFactory(sink))(model, context, { apiKey: "test-key" });
+		await sink.current!.wait();
+
+		assert.equal(sink.current!.events.at(-1).type, "done");
+		assert.equal(requests[0].input.length, 2);
+		assert.deepEqual(requests[0].input.map((entry: any) => entry.content[0].text), ["hi", "still there?"]);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});

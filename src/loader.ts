@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { StreamHelpers } from "./types.ts";
+import type { StreamHelpers, TranscriptHelpers } from "./types.ts";
 
 export async function loadStreamHelpers(): Promise<StreamHelpers> {
 	// The built-in API modules are ESM-only, while Pi loads extensions through
@@ -40,5 +40,31 @@ export async function loadStreamHelpers(): Promise<StreamHelpers> {
 		completionsStream: completionsMod.stream,
 		responsesStream: responsesMod.stream,
 		createAssistantMessageEventStream: eventStreamMod.createAssistantMessageEventStream,
+		transcript: await loadTranscriptHelpers(aiDir),
 	};
+}
+
+/**
+ * pi-ai >= 0.86 (Pi >= 0.86) ships `dist/utils/transcript.js` and normalizes
+ * provider-facing contexts, dropping `Context.systemPrompt`/`Context.tools` in
+ * favor of `role: "system"` transcript entries. Older pi-ai has no such module;
+ * `responses-tools.ts` falls back to reading the legacy fields directly in
+ * that case, so a missing module here is expected, not an error.
+ */
+async function loadTranscriptHelpers(aiDir: string): Promise<TranscriptHelpers | undefined> {
+	try {
+		const transcriptMod = await import(pathToFileURL(join(aiDir, "dist/utils/transcript.js")).href);
+		if (
+			typeof transcriptMod.getCurrentSystemPrompt === "function" &&
+			typeof transcriptMod.getCurrentTools === "function"
+		) {
+			return {
+				getCurrentSystemPrompt: transcriptMod.getCurrentSystemPrompt,
+				getCurrentTools: transcriptMod.getCurrentTools,
+			};
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
 }

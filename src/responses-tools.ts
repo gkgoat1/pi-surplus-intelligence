@@ -3,11 +3,12 @@ import type {
 	AssistantMessage,
 	AssistantMessageEventStream,
 	Context,
+	Message,
 	Model,
 	SimpleStreamOptions,
 	Tool,
 } from "@earendil-works/pi-ai";
-import type { CreateAssistantMessageEventStream } from "./types.ts";
+import type { CreateAssistantMessageEventStream, TranscriptHelpers } from "./types.ts";
 
 type ResponseStreamOptions = SimpleStreamOptions & {
 	samplingParams?: Record<string, unknown>;
@@ -55,15 +56,43 @@ function usage(response: any): AssistantMessage["usage"] {
 	};
 }
 
-function responseInput(model: Model<Api>, context: Context): any[] {
+/**
+ * Resolve the current system prompt and tool set across both context shapes.
+ * pi-ai >= 0.86 folds them into `role: "system"` transcript entries (replayed
+ * via the injected helpers); older pi-ai carries them directly on `Context`.
+ */
+function currentSystemPromptAndTools(
+	context: Context,
+	transcript: TranscriptHelpers | undefined,
+): { systemPrompt: string | undefined; tools: Tool[] | undefined } {
+	if (transcript) {
+		return {
+			systemPrompt: transcript.getCurrentSystemPrompt(context.messages) || undefined,
+			tools: transcript.getCurrentTools(context.messages) as Tool[] | undefined,
+		};
+	}
+	return { systemPrompt: context.systemPrompt, tools: context.tools };
+}
+
+function responseInput(model: Model<Api>, context: Context, systemPrompt: string | undefined): any[] {
 	const input: any[] = [];
-	if (context.systemPrompt) {
+	if (systemPrompt) {
 		input.push({
 			role: model.reasoning && (model.compat as any)?.supportsDeveloperRole !== false ? "developer" : "system",
-			content: context.systemPrompt,
+			content: systemPrompt,
 		});
 	}
-	for (const message of context.messages) {
+	for (const raw of context.messages) {
+		// pi-ai >= 0.86 carries the (already-extracted) prompt/tool state as
+		// role: "system" entries mid-transcript; older pi-ai never puts a
+		// system-role message in `.messages` at all, so this is a no-op there.
+		// Widen for the comparison since the installed pi-ai's `Message` union
+		// may predate the "system" variant (a literal-overlap type error
+		// otherwise). `Exclude` is a no-op on that older union and correctly
+		// drops `SystemMessage` on newer pi-ai, so the branches below keep
+		// their normal control-flow narrowing either way.
+		if ((raw as { role: string }).role === "system") continue;
+		const message = raw as Exclude<Message, { role: "system" }>;
 		if (message.role === "user") {
 			input.push({
 				role: "user",
@@ -120,6 +149,7 @@ function responseTools(tools: Tool[] | undefined): any[] | undefined {
  */
 export function createResponsesToolStream(
 	createAssistantMessageEventStream: CreateAssistantMessageEventStream,
+	transcript?: TranscriptHelpers,
 ): (model: Model<Api>, context: Context, options?: ResponseStreamOptions) => AssistantMessageEventStream {
 	return (model, context, options) => {
 		const stream = createAssistantMessageEventStream();
@@ -138,8 +168,9 @@ export function createResponsesToolStream(
 					if (name.toLowerCase() === "authorization") hasAuth = true;
 				}
 				if (!hasAuth && options?.apiKey) headers.set("authorization", `Bearer ${options.apiKey}`);
+				const { systemPrompt, tools } = currentSystemPromptAndTools(context, transcript);
 				const payload: Record<string, any> = {
-					model: model.id, input: responseInput(model, context), tools: responseTools(context.tools),
+					model: model.id, input: responseInput(model, context, systemPrompt), tools: responseTools(tools),
 					stream: false, store: false,
 				};
 				// Cap this fallback request independently of the selected model's
