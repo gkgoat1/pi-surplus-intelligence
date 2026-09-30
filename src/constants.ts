@@ -53,6 +53,8 @@ export const INFERHUB: ProviderDescriptor = {
 	catalog: "inferhub",
 };
 
+// export const CHEAPER_INFERENCE: ProviderDescriptor = {id:'cheaper-inference',name:'Cheaper Inference',baseUrl:'https://api.cheaperinference.com/v1',modelsUrl:'https://api.cheaperinference.com/v1/models',apiKeyEnvVar:'CHEAPER_INFERENCE_API_KEY',api:'openai-completions',supportsSavingsRouting:false,catalog:''}
+
 export const PROVIDERS: ProviderDescriptor[] = [SURPLUS_INTELLIGENCE, INFERHUB];
 
 export const PROVIDER_BY_ID: ReadonlyMap<string, ProviderDescriptor> = new Map(
