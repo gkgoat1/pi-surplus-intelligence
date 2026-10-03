@@ -11,6 +11,11 @@ function parseCost(value: unknown): number {
 	return Number.isFinite(n) ? n * 1_000_000 : 0;
 }
 
+function parsePerMillionPrice(value: unknown): number {
+	const n = typeof value === "string" ? Number(value) : typeof value === "number" ? value : NaN;
+	return Number.isFinite(n) ? n : 0;
+}
+
 const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 /**
@@ -151,11 +156,41 @@ function mapInferhubEntry(model: unknown, descriptor: ProviderDescriptor): any {
 	};
 }
 
-/** Map a catalog entry of either provider into a Pi model definition. */
+/** Map a catalog entry into a Pi model definition. */
+function mapCheaperInferenceEntry(model: unknown, descriptor: ProviderDescriptor): any {
+	const m = model as Record<string, any> | undefined;
+	if (!m || typeof m.id !== "string" || (m.type !== undefined && m.type !== "text")) return undefined;
+
+	const capabilities = m.capabilities ?? {};
+	const pricing = m.pricing ?? {};
+	const input: ("text" | "image")[] = ["text"];
+	if (capabilities.vision === true) input.push("image");
+	const contextWindow = m.context_length ?? 128_000;
+	const maxTokens = m.max_output_tokens ?? 32_768;
+
+	return {
+		id: m.id,
+		api: descriptor.api,
+		name: typeof m.name === "string" && m.name ? m.name : m.id,
+		reasoning: capabilities.reasoning === true,
+		input,
+		cost: {
+			input: parsePerMillionPrice(pricing.input_per_million),
+			output: parsePerMillionPrice(pricing.output_per_million),
+			cacheRead: parsePerMillionPrice(pricing.cache_read_input_per_million),
+			cacheWrite: parsePerMillionPrice(pricing.cache_write_input_per_million),
+		},
+		contextWindow: typeof contextWindow === "number" && contextWindow > 0 ? contextWindow : 128_000,
+		maxTokens: typeof maxTokens === "number" && maxTokens > 0 ? maxTokens : 32_768,
+		compat: gatewayCompat(capabilities.reasoning === true),
+	};
+}
+
+/** Map a catalog entry into a Pi model definition. */
 export function mapGatewayModel(model: unknown, descriptor: ProviderDescriptor): any {
-	return descriptor.catalog === "inferhub"
-		? mapInferhubEntry(model, descriptor)
-		: mapSurplusEntry(model, descriptor);
+	if (descriptor.catalog === "inferhub") return mapInferhubEntry(model, descriptor);
+	if (descriptor.catalog === "cheaper-inference") return mapCheaperInferenceEntry(model, descriptor);
+	return mapSurplusEntry(model, descriptor);
 }
 
 function surplusFallbackModels(descriptor: ProviderDescriptor): any[] {
@@ -228,10 +263,37 @@ function inferhubFallbackModels(descriptor: ProviderDescriptor): any[] {
 	];
 }
 
+function cheaperInferenceFallbackModels(descriptor: ProviderDescriptor): any[] {
+	return [
+		{
+			id: "claude-sonnet-4.6",
+			api: descriptor.api,
+			name: "Claude Sonnet 4.6",
+			reasoning: true,
+			input: ["text", "image"] as ("text" | "image")[],
+			cost: { input: 0, output: 0 },
+			contextWindow: 1_000_000,
+			maxTokens: 64_000,
+			compat: gatewayCompat(true),
+		},
+		{
+			id: "gpt-5.6-luna",
+			api: descriptor.api,
+			name: "GPT-5.6 Luna",
+			reasoning: true,
+			input: ["text", "image"] as ("text" | "image")[],
+			cost: { input: 0, output: 0 },
+			contextWindow: 1_100_000,
+			maxTokens: 128_000,
+			compat: gatewayCompat(true),
+		},
+	];
+}
+
 export function fallbackModels(descriptor: ProviderDescriptor): any[] {
-	return descriptor.catalog === "inferhub"
-		? inferhubFallbackModels(descriptor)
-		: surplusFallbackModels(descriptor);
+	if (descriptor.catalog === "inferhub") return inferhubFallbackModels(descriptor);
+	if (descriptor.catalog === "cheaper-inference") return cheaperInferenceFallbackModels(descriptor);
+	return surplusFallbackModels(descriptor);
 }
 
 export async function fetchModels(descriptor: ProviderDescriptor, apiKey: string): Promise<any[]> {

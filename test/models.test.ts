@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { INFERHUB, SURPLUS_INTELLIGENCE } from "../src/constants.ts";
+import { CHEAPER_INFERENCE, INFERHUB, SURPLUS_INTELLIGENCE } from "../src/constants.ts";
 import { clampGatewayThinkingLevel, fallbackModels, mapGatewayModel, usesOpenAIResponsesApi } from "../src/models.ts";
 
 test("uses the Responses API for GPT-5 and later", () => {
@@ -139,8 +139,38 @@ test("maps InferHub entries without reasoning levels or modality defaults", () =
 	assert.equal(mapped.compat.supportsReasoningEffort, false);
 });
 
+test("maps Cheaper Inference catalog entries and skips non-chat models", () => {
+	const mapped = mapGatewayModel(
+		{
+			id: "claude-opus-4.6",
+			type: "text",
+			context_length: 1_000_000,
+			max_output_tokens: 64_000,
+			capabilities: { vision: true, reasoning: true },
+			pricing: {
+				input_per_million: "3.5",
+				output_per_million: "17.5",
+				cache_read_input_per_million: "0.35",
+			},
+		},
+		CHEAPER_INFERENCE,
+	);
+	assert.equal(mapped.id, "claude-opus-4.6");
+	assert.equal(mapped.api, CHEAPER_INFERENCE.api);
+	assert.equal(mapped.name, "claude-opus-4.6");
+	assert.equal(mapped.reasoning, true);
+	assert.deepEqual(mapped.input, ["text", "image"]);
+	assert.equal(mapped.cost.input, 3.5);
+	assert.equal(mapped.cost.output, 17.5);
+	assert.equal(mapped.cost.cacheRead, 0.35);
+	assert.equal(mapped.contextWindow, 1_000_000);
+	assert.equal(mapped.maxTokens, 64_000);
+	assert.equal(mapped.compat.supportsReasoningEffort, true);
+	assert.equal(mapGatewayModel({ id: "image-model", type: "image" }, CHEAPER_INFERENCE), undefined);
+});
+
 test("fallback models are well-formed per provider", () => {
-	for (const descriptor of [SURPLUS_INTELLIGENCE, INFERHUB]) {
+	for (const descriptor of [SURPLUS_INTELLIGENCE, INFERHUB, CHEAPER_INFERENCE]) {
 		const models = fallbackModels(descriptor);
 		assert.ok(models.length > 0, descriptor.id);
 		for (const model of models) {

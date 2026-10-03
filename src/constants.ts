@@ -2,13 +2,13 @@ import type { Api } from "@earendil-works/pi-ai";
 
 /**
  * Static description of one OpenAI-compatible gateway this extension
- * registers with Pi. Surplus Intelligence and InferHub share the request
- * dialect (chat completions with reasoning hints, Responses API for GPT-5+),
- * so behavior differences ride on these flags rather than provider checks
+ * registers with Pi. The gateways share OpenAI-compatible request dialects
+ * (chat completions with reasoning hints, Responses API for GPT-5+), so
+ * behavior differences ride on these flags rather than provider checks
  * scattered through the codebase.
  */
 export type ProviderDescriptor = {
-	/** Pi provider id ("surplus-intelligence", "inferhub"). */
+	/** Pi provider id ("surplus-intelligence", "inferhub", "cheaper-inference"). */
 	id: string;
 	/** Display name for UI and diagnostics. */
 	name: string;
@@ -28,7 +28,7 @@ export type ProviderDescriptor = {
 	/** Whether requests may be rewritten to the `/min{N}/v1` savings routes. */
 	supportsSavingsRouting: boolean;
 	/** Shape of the provider's `/models` catalog entries. */
-	catalog: "surplus" | "inferhub";
+	catalog: "surplus" | "inferhub" | "cheaper-inference";
 };
 
 export const SURPLUS_INTELLIGENCE: ProviderDescriptor = {
@@ -53,9 +53,18 @@ export const INFERHUB: ProviderDescriptor = {
 	catalog: "inferhub",
 };
 
-// export const CHEAPER_INFERENCE: ProviderDescriptor = {id:'cheaper-inference',name:'Cheaper Inference',baseUrl:'https://api.cheaperinference.com/v1',modelsUrl:'https://api.cheaperinference.com/v1/models',apiKeyEnvVar:'CHEAPER_INFERENCE_API_KEY',api:'openai-completions',supportsSavingsRouting:false,catalog:''}
+export const CHEAPER_INFERENCE: ProviderDescriptor = {
+	id: "cheaper-inference",
+	name: "Cheaper Inference",
+	baseUrl: "https://api.cheaperinference.com/v1",
+	modelsUrl: "https://api.cheaperinference.com/v1/models",
+	apiKeyEnvVar: "CHEAPER_INFERENCE_API_KEY",
+	api: "openai-completions",
+	supportsSavingsRouting: false,
+	catalog: "cheaper-inference",
+};
 
-export const PROVIDERS: ProviderDescriptor[] = [SURPLUS_INTELLIGENCE, INFERHUB];
+export const PROVIDERS: ProviderDescriptor[] = [SURPLUS_INTELLIGENCE, INFERHUB, CHEAPER_INFERENCE];
 
 export const PROVIDER_BY_ID: ReadonlyMap<string, ProviderDescriptor> = new Map(
 	PROVIDERS.map((descriptor) => [descriptor.id, descriptor]),

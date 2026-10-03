@@ -1,12 +1,13 @@
 {
   "name": "pi-surplus-intelligence-extension",
   "version": "0.1.0",
-  "description": "Pi extension adding Surplus Intelligence and InferHub as model providers",
+  "description": "Pi extension adding Surplus Intelligence, InferHub, and Cheaper Inference model providers",
   "type": "module",
   "keywords": [
     "pi-package",
     "surplus-intelligence",
     "inferhub",
+    "cheaper-inference",
     "pi-extension"
   ],
   "pi": {

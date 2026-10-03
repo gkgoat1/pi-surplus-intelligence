@@ -1,7 +1,8 @@
 # Pi Surplus Intelligence Extension
 
-Adds support for [Surplus Intelligence](https://surplusintelligence.ai) and
-[InferHub](https://inferhub.dev) to Pi.
+Adds support for [Surplus Intelligence](https://surplusintelligence.ai),
+[InferHub](https://inferhub.dev), and [Cheaper Inference](https://www.cheaperinference.com)
+to Pi.
 
 Both providers are OpenAI-compatible gateways. The extension uses the
 `/v1/chat/completions` endpoint by default, and switches GPT-5-and-later model
@@ -15,11 +16,12 @@ when a model reasons without exposing any reasoning text.
 
 ## Usage
 
-Set your API keys (either or both):
+Set one or more provider API keys:
 
 ```bash
 export SURPLUS_INTELLIGENCE_API_KEY="your-key"
 export INFERHUB_API_KEY="your-key"
+export CHEAPER_INFERENCE_API_KEY="your-key"
 ```
 
 Run Pi from this repo:
@@ -33,6 +35,7 @@ Then select a model:
 ```
 /model surplus-intelligence/kimi-k2.7-code
 /model inferhub/ag/gemini-3.7-flash-high
+/model cheaper-inference/claude-opus-4.6
 ```
 
 InferHub model IDs are vendor-prefixed (`ag/...`, `ali/...`); the `/model`
@@ -54,9 +57,10 @@ are rejected by the gateway.
 
 ## Model discovery
 
-The extension fetches each provider's live model list at startup
-(`https://api.surplusintelligence.ai/v1/models` and
-`https://api.inferhub.dev/v1/models`). For Surplus, the `reasoning` flag is set
+The extension fetches each configured provider's live model list at startup
+(`https://api.surplusintelligence.ai/v1/models`,
+`https://api.inferhub.dev/v1/models`, and
+`https://api.cheaperinference.com/v1/models`). For Surplus, the `reasoning` flag is set
 only for models whose `supported_parameters` include `reasoning` or
 `include_reasoning`; for InferHub, only for models advertising
 `reasoning_levels`. If a catalog fetch fails, a small fallback list is used so
@@ -79,8 +83,8 @@ Each provider's key resolves in this order:
    `$VAR` / `${VAR}` environment template, or a `!command` whose stdout is the
    key (useful for password managers). Unknown provider ids are reported as
    startup warnings.
-2. The provider's environment variable: `SURPLUS_INTELLIGENCE_API_KEY` or
-   `INFERHUB_API_KEY`.
+2. The provider's environment variable: `SURPLUS_INTELLIGENCE_API_KEY`,
+   `INFERHUB_API_KEY`, or `CHEAPER_INFERENCE_API_KEY`.
 
 A failing or empty `!command` leaves that provider unconfigured rather than
 breaking startup; the other provider is unaffected.
@@ -89,7 +93,8 @@ breaking startup; the other provider is unaffected.
 
 Direct Surplus requests use the `min50` route by default, which only permits
 routes offering at least 50% savings. Savings routing is Surplus-only; InferHub
-requests always go to its direct upstream. Configure a project-local override in the
+and Cheaper Inference requests always go to their direct upstream. Configure a
+project-local override in the
 same `.pi/surplus-intelligence.json` file; a per-model value takes precedence:
 
 ```json
