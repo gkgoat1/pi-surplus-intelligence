@@ -1,11 +1,10 @@
 /**
- * Pi extension for Surplus Intelligence.
+ * Pi extension for Surplus Intelligence, InferHub, and Cheaper Inference.
  *
- * Registers Surplus Intelligence as an OpenAI-compatible provider and discovers
- * available models from its /v1/models endpoint. GPT-5-and-later requests use
- * the Responses API; earlier models use chat completions. A custom streamSimple
- * wrapper injects reasoning settings and falls back to token-count evidence
- * when a model reasons without exposing reasoning text.
+ * Registers each gateway's OpenAI-compatible provider and discovers its model
+ * catalog. Claude models are also registered separately with Pi's native
+ * Anthropic Messages adapter. GPT-5-and-later OpenAI requests use the Responses
+ * API; earlier models use chat completions.
  *
  * Usage:
  *   export SURPLUS_INTELLIGENCE_API_KEY="..."
@@ -14,7 +13,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { PROVIDERS } from "./src/constants.ts";
-import { fetchModels, fallbackModels } from "./src/models.ts";
+import { anthropicClaudeModels, fetchModels, fallbackModels } from "./src/models.ts";
 import { loadProvidersFileConfig, resolveProviderCredentials } from "./src/provider-config.ts";
 import { loadStreamHelpers } from "./src/loader.ts";
 import {
@@ -111,6 +110,19 @@ export default async function (pi: ExtensionAPI) {
 			models,
 			streamSimple,
 		});
+
+		const claudeModels = anthropicClaudeModels(models);
+		if (claudeModels.length > 0) {
+			// Use Pi's native Anthropic adapter so Claude thinking blocks, signatures,
+			// and tool-use/result turns follow Anthropic Messages semantics end to end.
+			pi.registerProvider(`${descriptor.id}-anthropic`, {
+				name: `${descriptor.name} (Anthropic Messages)`,
+				baseUrl: descriptor.anthropicBaseUrl,
+				apiKey,
+				api: "anthropic-messages",
+				models: claudeModels,
+			});
+		}
 	}
 
 	pi.on("session_start", (event, ctx) => {

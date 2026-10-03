@@ -4,7 +4,7 @@ Adds support for [Surplus Intelligence](https://surplusintelligence.ai),
 [InferHub](https://inferhub.dev), and [Cheaper Inference](https://www.cheaperinference.com)
 to Pi.
 
-Both providers are OpenAI-compatible gateways. The extension uses the
+All three providers support OpenAI-compatible APIs. The extension uses the
 `/v1/chat/completions` endpoint by default, and switches GPT-5-and-later model
 IDs to `/v1/responses`. For stability with those models it issues the Responses
 request directly through `fetch` (non-streaming) so it can normalize headers
@@ -13,6 +13,10 @@ It injects `include_reasoning: "summary"` for chat-completions models to request
 concise reasoning previews from closed models, maps Pi's thinking level to
 OpenAI's `reasoning_effort`, and falls back to displaying reasoning-token counts
 when a model reasons without exposing any reasoning text.
+
+Claude models are also registered as separate `*-anthropic` providers using Pi's
+native Anthropic Messages adapter. This sends Claude thinking blocks and tool
+calls/results using Anthropic's native message format.
 
 ## Usage
 
@@ -36,6 +40,9 @@ Then select a model:
 /model surplus-intelligence/kimi-k2.7-code
 /model inferhub/ag/gemini-3.7-flash-high
 /model cheaper-inference/claude-opus-4.6
+/model surplus-intelligence-anthropic/claude-sonnet-5
+/model inferhub-anthropic/ag/claude-sonnet-4-6
+/model cheaper-inference-anthropic/claude-opus-4.6
 ```
 
 InferHub model IDs are vendor-prefixed (`ag/...`, `ali/...`); the `/model`
@@ -63,8 +70,10 @@ The extension fetches each configured provider's live model list at startup
 `https://api.cheaperinference.com/v1/models`). For Surplus, the `reasoning` flag is set
 only for models whose `supported_parameters` include `reasoning` or
 `include_reasoning`; for InferHub, only for models advertising
-`reasoning_levels`. If a catalog fetch fails, a small fallback list is used so
-startup still works.
+`reasoning_levels`; for Cheaper Inference, from the catalog's `capabilities`.
+Claude models from each catalog also appear under the matching `*-anthropic`
+provider. If a catalog fetch fails, a small fallback list is used so startup
+still works.
 
 ## Authentication
 
@@ -75,7 +84,8 @@ Each provider's key resolves in this order:
    {
      "providers": {
        "surplus-intelligence": { "apiKey": "$SURPLUS_INTELLIGENCE_API_KEY" },
-       "inferhub": { "apiKey": "!cat ~/keys/inferhub" }
+       "inferhub": { "apiKey": "!cat ~/keys/inferhub" },
+       "cheaper-inference": { "apiKey": "$CHEAPER_INFERENCE_API_KEY" }
      }
    }
    ```
@@ -87,7 +97,7 @@ Each provider's key resolves in this order:
    `INFERHUB_API_KEY`, or `CHEAPER_INFERENCE_API_KEY`.
 
 A failing or empty `!command` leaves that provider unconfigured rather than
-breaking startup; the other provider is unaffected.
+breaking startup; the other providers are unaffected.
 
 ## Savings-based routing
 

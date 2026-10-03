@@ -21,6 +21,8 @@ export type ProviderDescriptor = {
 	baseUrl: string;
 	/** Model catalog endpoint (`${baseUrl}/v1/models` or equivalent). */
 	modelsUrl: string;
+	/** Origin/base path for the gateway's Anthropic Messages API. */
+	anthropicBaseUrl: string;
 	/** Environment variable holding the API key when not set in config. */
 	apiKeyEnvVar: string;
 	/** Pi API identifier registered for this provider's models. */
@@ -36,6 +38,7 @@ export const SURPLUS_INTELLIGENCE: ProviderDescriptor = {
 	name: "Surplus Intelligence",
 	baseUrl: "https://api.surplusintelligence.ai",
 	modelsUrl: "https://api.surplusintelligence.ai/v1/models",
+	anthropicBaseUrl: "https://api.surplusintelligence.ai/anthropic",
 	apiKeyEnvVar: "SURPLUS_INTELLIGENCE_API_KEY",
 	api: "surplus-openai-completions",
 	supportsSavingsRouting: true,
@@ -47,6 +50,7 @@ export const INFERHUB: ProviderDescriptor = {
 	name: "InferHub",
 	baseUrl: "https://api.inferhub.dev/v1",
 	modelsUrl: "https://api.inferhub.dev/v1/models",
+	anthropicBaseUrl: "https://api.inferhub.dev",
 	apiKeyEnvVar: "INFERHUB_API_KEY",
 	api: "inferhub-openai-completions",
 	supportsSavingsRouting: false,
@@ -58,6 +62,7 @@ export const CHEAPER_INFERENCE: ProviderDescriptor = {
 	name: "Cheaper Inference",
 	baseUrl: "https://api.cheaperinference.com/v1",
 	modelsUrl: "https://api.cheaperinference.com/v1/models",
+	anthropicBaseUrl: "https://api.cheaperinference.com",
 	apiKeyEnvVar: "CHEAPER_INFERENCE_API_KEY",
 	api: "openai-completions",
 	supportsSavingsRouting: false,

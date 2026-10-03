@@ -296,6 +296,25 @@ export function fallbackModels(descriptor: ProviderDescriptor): any[] {
 	return surplusFallbackModels(descriptor);
 }
 
+/** Clone Claude models for Pi's native Anthropic Messages adapter. */
+export function anthropicClaudeModels(models: any[]): any[] {
+	return models
+		.filter((model) => /claude-/i.test(`${model.id} ${model.name}`))
+		.map((model) => {
+			const adaptiveThinking = /claude-(?:opus|sonnet|fable)-(?:4[.-](?:6|7|8)|5(?:[.-]\d+)?)/i.test(model.id);
+			const temperatureUnsupported = /claude-opus-(?:4[.-](?:7|8)|5(?:[.-]\d+)?)/i.test(model.id);
+			return {
+				...model,
+				api: "anthropic-messages",
+				compat: {
+					supportsStrictTools: true,
+					...(adaptiveThinking ? { forceAdaptiveThinking: true } : {}),
+					...(temperatureUnsupported ? { supportsTemperature: false } : {}),
+				},
+			};
+		});
+}
+
 export async function fetchModels(descriptor: ProviderDescriptor, apiKey: string): Promise<any[]> {
 	const response = await fetch(descriptor.modelsUrl, {
 		headers: {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { CHEAPER_INFERENCE, INFERHUB, SURPLUS_INTELLIGENCE } from "../src/constants.ts";
-import { clampGatewayThinkingLevel, fallbackModels, mapGatewayModel, usesOpenAIResponsesApi } from "../src/models.ts";
+import { anthropicClaudeModels, clampGatewayThinkingLevel, fallbackModels, mapGatewayModel, usesOpenAIResponsesApi } from "../src/models.ts";
 
 test("uses the Responses API for GPT-5 and later", () => {
 	for (const id of ["gpt-5", "gpt-5.6-luna-pro", "GPT-12-preview"]) {
@@ -167,6 +167,23 @@ test("maps Cheaper Inference catalog entries and skips non-chat models", () => {
 	assert.equal(mapped.maxTokens, 64_000);
 	assert.equal(mapped.compat.supportsReasoningEffort, true);
 	assert.equal(mapGatewayModel({ id: "image-model", type: "image" }, CHEAPER_INFERENCE), undefined);
+});
+
+test("Anthropic variants use native Messages metadata for Claude only", () => {
+	const source = [
+		{ id: "ag/claude-opus-4-6", name: "Claude Opus", api: INFERHUB.api, reasoning: true, compat: { supportsReasoningEffort: true } },
+		{ id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", api: CHEAPER_INFERENCE.api, reasoning: true },
+		{ id: "gpt-5.6-luna", name: "GPT 5.6 Luna", api: CHEAPER_INFERENCE.api, reasoning: true },
+	];
+	const variants = anthropicClaudeModels(source);
+	assert.equal(variants.length, 2);
+	assert.equal(variants[0].api, "anthropic-messages");
+	assert.equal(variants[0].compat.forceAdaptiveThinking, true);
+	assert.equal(variants[0].compat.supportsStrictTools, true);
+	assert.equal(variants[1].compat.forceAdaptiveThinking, undefined);
+	assert.equal(variants[1].compat.supportsStrictTools, true);
+	assert.equal(source[0].api, INFERHUB.api, "OpenAI variant remains unchanged");
+	assert.equal((source[0].compat as any).forceAdaptiveThinking, undefined);
 });
 
 test("fallback models are well-formed per provider", () => {
