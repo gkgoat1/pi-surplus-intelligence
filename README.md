@@ -46,9 +46,11 @@ model list) so a key added later via Pi's auth flow works without touching the
 extension. Set `"providers": { "<id>": { "enabled": false } }` in the config
 file to hide a provider entirely.
 
-`Use `--thinking <level>` to request reasoning (`off`, `minimal`, `low`, `medium`,
+Use `--thinking <level>` to request reasoning (`off`, `minimal`, `low`, `medium`,
 `high`, `xhigh`, `max`). Only models that advertise reasoning support will expose
-a reasoning preview. InferHub models with `reasoning_levels` in their catalog
+a reasoning preview. For InferHub models, requested thinking levels are clamped
+to the nearest level advertised in `reasoning_levels`, since unsupported levels
+are rejected by the gateway.
 
 ## Model discovery
 
@@ -154,13 +156,14 @@ cooldown state. The status is not emitted in print, JSON, or RPC modes.
 
 ## Pi version compatibility
 
-This extension supports Pi >= 0.84.0, including Pi >= 0.86's normalized
-`TranscriptContext` for custom providers (system prompt and tool declarations
-folded into `role: "system"` transcript entries instead of `Context.systemPrompt`
-/ `Context.tools`). The GPT-5+ direct-Responses fallback
-(`src/responses-tools.ts`) detects which shape the resolved `@earendil-works/pi-ai`
-provides and reads the current prompt/tools accordingly, so both old and new Pi
-versions get correct system prompts and tool declarations on that path.
+This extension supports Pi >= 0.84.0. It is verified through Pi 1.0.0,
+including Pi >= 0.86's normalized `TranscriptContext` for custom providers
+(system prompt and tool declarations folded into `role: "system"` transcript
+entries instead of `Context.systemPrompt` / `Context.tools`). The GPT-5+ Responses
+fallback (`src/responses-tools.ts`) detects which shape the resolved
+`@earendil-works/pi-ai` provides and reads the current prompt/tools accordingly,
+so both old and new Pi versions get correct system prompts and tool declarations
+on that path.
 
 ## pi-blackhole compatibility
 
