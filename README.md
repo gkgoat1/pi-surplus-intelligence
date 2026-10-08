@@ -1,8 +1,9 @@
 # Pi Surplus Intelligence Extension
 
 Adds support for [Surplus Intelligence](https://surplusintelligence.ai),
-[InferHub](https://inferhub.dev), and [Cheaper Inference](https://www.cheaperinference.com)
-to Pi.
+[InferHub](https://inferhub.dev), [Cheaper Inference](https://www.cheaperinference.com),
+[Surp](https://surp.ivc.lol), [Bu0y](https://bu0y.com), and
+[Ruvicode](https://ruvicode.com) to Pi.
 
 All three providers support OpenAI-compatible APIs. The extension uses the
 `/v1/chat/completions` endpoint by default, and switches GPT-5-and-later model
@@ -26,7 +27,16 @@ Set one or more provider API keys:
 export SURPLUS_INTELLIGENCE_API_KEY="your-key"
 export INFERHUB_API_KEY="your-key"
 export CHEAPER_INFERENCE_API_KEY="your-key"
+export SURP_API_KEY="your-key"        # optional; surp/free needs no key
+export BU0Y_API_KEY="your-bu0y-key"    # prepaid credits; api.bu0y.com
+export RUVICODE_API_KEY="your-key"     # api.ruvicode.com
 ```
+
+Surp, Bu0y, and Ruvicode expose public `/v1/models` catalogs, so their model
+lists load even without a key (probed in `docs/probe-results.md`). Surp's
+`surp/free` route streams with neither a key nor a wallet; its paid routes
+answer `402 Payment Required` with an x402 challenge — see
+`docs/plans/x402-fetch-hook.md` for the wallet-payment work.
 
 Run Pi from this repo:
 

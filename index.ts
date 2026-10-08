@@ -76,9 +76,12 @@ export default async function (pi: ExtensionAPI) {
 		const credentials = resolveProviderCredentials(descriptor, fileConfig[descriptor.id]);
 
 		let models = fallbackModels(descriptor);
-		if (credentials.ok) {
+		// Providers with a public catalog (Surp, Bu0y, Ruvicode — probed in
+		// docs/probe-results.md) are discovered without a key; keyed-only
+		// providers keep the old behavior of skipping discovery when keyless.
+		if (credentials.ok || descriptor.publicCatalog) {
 			try {
-				models = await fetchModels(descriptor, credentials.apiKey);
+				models = await fetchModels(descriptor, credentials.ok ? credentials.apiKey : undefined);
 			} catch {
 				// Keep fallback models if discovery fails so startup doesn't break.
 			}
