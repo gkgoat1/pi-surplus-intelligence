@@ -30,7 +30,20 @@ export type ProviderDescriptor = {
 	/** Whether requests may be rewritten to the `/min{N}/v1` savings routes. */
 	supportsSavingsRouting: boolean;
 	/** Shape of the provider's `/models` catalog entries. */
-	catalog: "surplus" | "inferhub" | "cheaper-inference";
+	catalog: "surplus" | "inferhub" | "cheaper-inference" | "surp" | "bu0y" | "ruvicode";
+	/**
+	 * Whether the catalog endpoint answers without a key (probed; see
+	 * docs/probe-results.md). Such providers attempt discovery keyless and
+	 * omit the Authorization header until a key exists.
+	 */
+	publicCatalog?: boolean;
+	/**
+	 * Whether a request may proceed with no API key at all. Surp's `surp/free`
+	 * route works unauthenticated; other keyless providers register their
+	 * catalogs but need a key (or, for Surp's paid routes, the Phase 3 wallet
+	 * hook) to serve inference.
+	 */
+	allowsKeylessRequests?: boolean;
 };
 
 export const SURPLUS_INTELLIGENCE: ProviderDescriptor = {
@@ -69,7 +82,54 @@ export const CHEAPER_INFERENCE: ProviderDescriptor = {
 	catalog: "cheaper-inference",
 };
 
-export const PROVIDERS: ProviderDescriptor[] = [SURPLUS_INTELLIGENCE, INFERHUB, CHEAPER_INFERENCE];
+export const SURP: ProviderDescriptor = {
+	id: "surp",
+	name: "Surp",
+	baseUrl: "https://surp.ivc.lol/v1",
+	modelsUrl: "https://surp.ivc.lol/v1/models",
+	anthropicBaseUrl: "https://surp.ivc.lol",
+	apiKeyEnvVar: "SURP_API_KEY",
+	api: "surp-openai-completions",
+	supportsSavingsRouting: false,
+	catalog: "surp",
+	publicCatalog: true,
+	allowsKeylessRequests: true,
+};
+
+export const BU0Y: ProviderDescriptor = {
+	id: "bu0y",
+	name: "Bu0y",
+	baseUrl: "https://api.bu0y.com/v1",
+	modelsUrl: "https://api.bu0y.com/v1/models",
+	anthropicBaseUrl: "https://api.bu0y.com",
+	apiKeyEnvVar: "BU0Y_API_KEY",
+	api: "bu0y-openai-completions",
+	supportsSavingsRouting: false,
+	catalog: "bu0y",
+	publicCatalog: true,
+};
+
+export const RUVICODE: ProviderDescriptor = {
+	id: "ruvicode",
+	name: "Ruvicode",
+	baseUrl: "https://api.ruvicode.com/v1",
+	modelsUrl: "https://api.ruvicode.com/v1/models",
+	anthropicBaseUrl: "https://api.ruvicode.com",
+	apiKeyEnvVar: "RUVICODE_API_KEY",
+	api: "ruvicode-openai-completions",
+	supportsSavingsRouting: false,
+	catalog: "ruvicode",
+	publicCatalog: true,
+};
+
+export const PROVIDERS: ProviderDescriptor[] = [
+	SURPLUS_INTELLIGENCE,
+	INFERHUB,
+	CHEAPER_INFERENCE,
+	SURP,
+	BU0Y,
+	RUVICODE,
+];
 
 export const PROVIDER_BY_ID: ReadonlyMap<string, ProviderDescriptor> = new Map(
 	PROVIDERS.map((descriptor) => [descriptor.id, descriptor]),

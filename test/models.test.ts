@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CHEAPER_INFERENCE, INFERHUB, SURPLUS_INTELLIGENCE } from "../src/constants.ts";
+import { BU0Y, CHEAPER_INFERENCE, INFERHUB, RUVICODE, SURP, SURPLUS_INTELLIGENCE } from "../src/constants.ts";
 import { anthropicClaudeModels, clampGatewayThinkingLevel, fallbackModels, mapGatewayModel, usesOpenAIResponsesApi } from "../src/models.ts";
 
 test("uses the Responses API for GPT-5 and later", () => {
@@ -201,4 +201,93 @@ test("fallback models are well-formed per provider", () => {
 	}
 	// InferHub ids must stay vendor-prefixed; bare ids are rejected upstream.
 	assert.ok(fallbackModels(INFERHUB).every((model) => model.id.includes("/")));
+});
+// --- Phase 2: Surp, Bu0y, Ruvicode ---
+
+test("Surp fallback models are the seven documented routes", () => {
+	const ids = fallbackModels(SURP).map((m: any) => m.id);
+	assert.deepEqual(ids, [
+		"surp/free",
+		"surp/value",
+		"surp/jev",
+		"surp/frontier",
+		"surp/fast",
+		"surp/vision",
+		"surp/custom",
+	]);
+	assert.ok(fallbackModels(SURP).every((m: any) => m.api === SURP.api));
+});
+
+test("maps a Surp combo catalog entry", () => {
+	const mapped = mapGatewayModel(
+		{
+			combo: "surp/best-coding",
+			resolved_model: "qwen3-coder-30b-a3b-instruct",
+			usd_per_1m_tokens: 0.003465,
+			pool_size: 7,
+			sellers: 17,
+		},
+		SURP,
+	);
+	assert.equal(mapped.id, "surp/best-coding");
+	assert.equal(mapped.api, SURP.api);
+	assert.ok(typeof mapped.name === "string" && mapped.name.length > 0);
+});
+
+test("skips a Surp catalog entry without a combo id", () => {
+	assert.equal(mapGatewayModel({ resolved_model: "x" }, SURP), undefined);
+});
+
+test("maps a Bu0y catalog entry with per-1M pricing", () => {
+	const mapped = mapGatewayModel(
+		{
+			id: "glm4.6",
+			context_length: 131072,
+			top_provider: { max_completion_tokens: 32768 },
+			inputPer1m: 1_500_000,
+			outputPer1m: 6_000_000,
+		},
+		BU0Y,
+	);
+	assert.equal(mapped.id, "glm4.6");
+	assert.equal(mapped.api, BU0Y.api);
+	assert.equal(mapped.cost.input, 1_500_000);
+	assert.equal(mapped.cost.output, 6_000_000);
+	assert.equal(mapped.contextWindow, 131072);
+	assert.equal(mapped.maxTokens, 32768);
+});
+
+test("Bu0y fallback models are non-empty and use Bu0y slugs", () => {
+	const models = fallbackModels(BU0Y);
+	assert.ok(models.length > 0);
+	assert.ok(models.every((m: any) => m.api === BU0Y.api && !m.id.includes("/")));
+});
+
+test("maps a Ruvicode catalog entry with cache_read_price", () => {
+	const mapped = mapGatewayModel(
+		{
+			id: "claude-fable-5",
+			name: "Claude Fable 5",
+			context_length: 1_000_000,
+			max_completion_tokens: 128_000,
+			cache_read_price: 0.39347,
+		},
+		RUVICODE,
+	);
+	assert.equal(mapped.id, "claude-fable-5");
+	assert.equal(mapped.api, RUVICODE.api);
+	assert.equal(mapped.contextWindow, 1_000_000);
+	assert.equal(mapped.maxTokens, 128_000);
+	assert.ok(mapped.cost.cacheRead > 0);
+});
+
+test("maps a Ruvicode entry missing optional pricing fields with zeroed costs", () => {
+	const mapped = mapGatewayModel({ id: "some-model" }, RUVICODE);
+	assert.equal(mapped.id, "some-model");
+	assert.equal(mapped.cost.input, 0);
+	assert.equal(mapped.cost.cacheRead, 0);
+});
+
+test("Ruvicode fallback models are non-empty", () => {
+	assert.ok(fallbackModels(RUVICODE).length > 0);
 });
