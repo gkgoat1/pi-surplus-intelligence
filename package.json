@@ -28,5 +28,8 @@
     "tsx": "^4.23.13",
     "typescript": "^5.9.3"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "ethers": "^6.17.0"
+  }
 }
