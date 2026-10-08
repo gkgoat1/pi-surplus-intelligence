@@ -32,6 +32,20 @@ const INITIAL_RETRY_DELAY_MS = 500;
 const MAX_RETRY_DELAY_MS = 60_000;
 
 /**
+ * Bu0y reserves the worst-case cost before running a fill, so a replayed
+ * request can pay twice for one answer (docs/plans/x402-fetch-hook.md §Bu0y).
+ * Cap its pre-output retries at a single retry; other providers keep the
+ * generous budget for long-running agents.
+ */
+const PREPAID_FILL_MAX_ATTEMPTS = 2;
+
+function maxAttemptsForModel(model: Model<Api>): number {
+	return PROVIDER_BY_ID.get(model.provider)?.catalog === "bu0y"
+		? PREPAID_FILL_MAX_ATTEMPTS
+		: MAX_RESPONSE_ATTEMPTS;
+}
+
+/**
  * Wait between attempts without keeping an agent alive after Pi has cancelled
  * it. Long-running workflow agents can otherwise race an aborted request's
  * retry timer and appear to hang.
@@ -110,7 +124,8 @@ async function* retryFailedAssistantResponses(
 	signal: AbortSignal | undefined,
 ): AsyncGenerator<any> {
 	let lastFailure: unknown;
-	for (let attempt = 1; attempt <= MAX_RESPONSE_ATTEMPTS; attempt++) {
+	const maxAttempts = maxAttemptsForModel(model);
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 		const buffered: any[] = [];
 		let forwarded = false;
 		let retryableFailure = false;
@@ -133,7 +148,7 @@ async function* retryFailedAssistantResponses(
 				}
 
 				if (event.type === "error") {
-					if (forwarded || signal?.aborted || attempt === MAX_RESPONSE_ATTEMPTS) {
+					if (forwarded || signal?.aborted || attempt === maxAttempts) {
 						if (!forwarded) for (const bufferedEvent of buffered) yield bufferedEvent;
 						return;
 					}
@@ -145,7 +160,7 @@ async function* retryFailedAssistantResponses(
 				const claimedError = claimedUpstreamError(event.message);
 				if (claimedError) {
 					const error = upstreamClaimedErrorMessage(event.message, claimedError);
-					if (forwarded || signal?.aborted || attempt === MAX_RESPONSE_ATTEMPTS) {
+					if (forwarded || signal?.aborted || attempt === maxAttempts) {
 						yield { type: "error", reason: "error", error };
 						return;
 					}
@@ -173,6 +188,9 @@ async function* retryFailedAssistantResponses(
 		if (!(await waitForRetry(retryDelayMs(attempt), signal))) throw abortedRequestError();
 	}
 }
+
+// Re-exported for tests.
+export { maxAttemptsForModel };
 
 function optionsForUpstream(
 	options: SimpleStreamOptions | undefined,
@@ -240,7 +258,7 @@ export function createGatewayStreamSimple(
 								reasoningEffort,
 								reasoningSummary: model.reasoning ? "auto" : undefined,
 								onPayload(payload: unknown) {
-									const params = payload as Record<string, any>;
+									const params = payload as Record<string, unknown>;
 									if (originalOnPayload) {
 										const next = originalOnPayload(params, model);
 										if (next !== undefined) return next;
@@ -252,7 +270,7 @@ export function createGatewayStreamSimple(
 								...upstreamOptions,
 								reasoningEffort,
 								onPayload(payload: unknown) {
-									const params = payload as Record<string, any>;
+									const params = payload as Record<string, unknown>;
 									if (model.reasoning) {
 										// Prefer summarized reasoning. Closed models often expose a summary
 										// instead of raw reasoning to avoid distillation and reduce token use.

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Model } from "@earendil-works/pi-ai";
 import { configurePreferredProviders } from "../src/preferred-providers.ts";
-import { createGatewayStreamSimple } from "../src/stream.ts";
+import { createGatewayStreamSimple, maxAttemptsForModel } from "../src/stream.ts";
 
 class RecordingStream implements AsyncIterable<any> {
 	readonly events: any[] = [];
@@ -470,4 +470,18 @@ test("surplus models pass max through unchanged when no thinkingLevelMap exists"
 	await helper.sink.finished;
 
 	assert.equal(helper.calls[0].options.reasoningEffort, "max");
+});
+
+// --- Phase 2: prepaid-fill retry caps ---
+
+test("maxAttemptsForModel caps Bu0y at a single retry", () => {
+	const bu0yModel = { provider: "bu0y" } as any;
+	assert.equal(maxAttemptsForModel(bu0yModel), 2);
+});
+
+test("maxAttemptsForModel keeps the generous budget for other providers", () => {
+	for (const provider of ["surplus-intelligence", "inferhub", "cheaper-inference", "surp", "ruvicode"]) {
+		assert.equal(maxAttemptsForModel({ provider } as any), 15, provider);
+	}
+	assert.equal(maxAttemptsForModel({ provider: "unknown" } as any), 15);
 });
