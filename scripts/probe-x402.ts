@@ -31,17 +31,23 @@ type AcceptsEntry = {
 	scheme?: unknown;
 	network?: unknown;
 	maxAmountRequired?: unknown;
+	amount?: unknown;
 	asset?: unknown;
 };
 
-/** A usable v1-style accepts entry names scheme, network, amount, and asset. */
+/**
+ * A usable accepts entry names scheme, network, amount, and asset. v1 calls
+ * the amount field `maxAmountRequired`; v2 (what Surp and Surplus Intelligence
+ * actually send) calls it `amount`. Either proves x402 for classification.
+ */
 function isUsableAcceptsEntry(entry: AcceptsEntry): boolean {
+	const amount = entry.maxAmountRequired ?? entry.amount;
 	return (
 		entry.scheme === "exact" &&
 		typeof entry.network === "string" &&
 		entry.network.length > 0 &&
-		typeof entry.maxAmountRequired === "string" &&
-		/^[0-9]+$/.test(entry.maxAmountRequired) &&
+		typeof amount === "string" &&
+		/^[0-9]+$/.test(amount) &&
 		typeof entry.asset === "string" &&
 		entry.asset.length > 0
 	);
@@ -100,6 +106,9 @@ const DEFAULT_HOSTS: { name: string; chatCompletionsUrl: string; model: string }
 	{ name: "bu0y", chatCompletionsUrl: "https://api.bu0y.com/v1/chat/completions", model: "glm4.6" },
 	{ name: "surplus-intelligence", chatCompletionsUrl: "https://api.surplusintelligence.ai/v1/chat/completions", model: "kimi-k2.7-code" },
 	{ name: "openrouter", chatCompletionsUrl: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-4o-mini" },
+	// Ruvicode publishes no API docs; api.ruvicode.com serves an OpenAI-shaped
+	// /v1/models catalog, so the chat path follows the same root.
+	{ name: "ruvicode", chatCompletionsUrl: "https://api.ruvicode.com/v1/chat/completions", model: "claude-fable-5" },
 ];
 
 const PROBE_TIMEOUT_MS = 15_000;

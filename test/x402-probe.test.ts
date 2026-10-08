@@ -32,6 +32,22 @@ const VALID_ACCEPTS = {
 	],
 };
 
+/** The shape Surp actually sends: x402 v2, `amount` instead of
+ *  `maxAmountRequired`, `eip155:8453` network, `payment-required` header. */
+const SURP_V2_ACCEPTS = {
+	x402Version: 2,
+	accepts: [
+		{
+			scheme: "exact",
+			network: "eip155:8453",
+			asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "10000",
+			payTo: "0x2f9518019575e048320c1e7da4dc4d6d8384c2c8",
+			maxTimeoutSeconds: 600,
+		},
+	],
+};
+
 test("401 with no body classifies as key-required", async () => {
 	const result = await classifyProbeResponse(fixture({ status: 401 }));
 	assert.equal(result.classification, "401 key-required");
@@ -71,6 +87,21 @@ test("200 classifies as other", async () => {
 		fixture({ status: 200, body: JSON.stringify({ choices: [] }) }),
 	);
 	assert.equal(result.classification, "other");
+});
+
+test("Surp's v2 challenge in the payment-required header classifies as x402", async () => {
+	const header = Buffer.from(JSON.stringify(SURP_V2_ACCEPTS)).toString("base64");
+	const result = await classifyProbeResponse(
+		fixture({ status: 402, headers: { "payment-required": header } }),
+	);
+	assert.equal(result.classification, "402 x402");
+});
+
+test("Surp's v2 challenge in the body classifies as x402", async () => {
+	const result = await classifyProbeResponse(
+		fixture({ status: 402, body: JSON.stringify({ ...SURP_V2_ACCEPTS, error: "payment-required" }) }),
+	);
+	assert.equal(result.classification, "402 x402");
 });
 
 test("an accepts entry missing required fields is not x402", async () => {

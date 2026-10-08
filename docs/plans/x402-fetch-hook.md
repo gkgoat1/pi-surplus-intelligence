@@ -318,10 +318,10 @@ case of a 402 that must not be paid.
 
 | Provider | Base URL | Auth | x402 |
 |---|---|---|---|
-| Surp | `https://surp.ivc.lol/v1` | Bearer key or wallet | native |
-| Surplus Intelligence | `api.surplusintelligence.ai` | API key | probe will record |
+| Surp | `https://surp.ivc.lol/v1` | Bearer key or wallet | native (v2) |
+| Surplus Intelligence | `api.surplusintelligence.ai` | API key | yes (v2, `exact` + `upto`); key is cheaper |
 | Bu0y | `https://api.bu0y.com/v1` | `bu0y_…` key, prepaid | no; 402 = low balance |
-| Ruvicode | confirm from dashboard | Bearer key, prepaid | no public evidence |
+| Ruvicode | `https://api.ruvicode.com/v1` | Bearer key, prepaid | no public evidence |
 | OpenRouter | `https://openrouter.ai/api` | route credentials | opportunistic via hook |
 
 ### Fetch injection points
@@ -375,12 +375,18 @@ sit in the file, and the signer address is derivable, so logs can show it safely
 
 ## Open questions
 
-- Ruvicode's base URL and catalog shape: unconfirmed until the user registers.
+- ~~Ruvicode's base URL~~ answered 2026-10-08 by probing: `https://api.ruvicode.com/v1`,
+  with a public OpenAI-shaped `/v1/models`. Catalog entries carry extra fields
+  (`cache_read_price`, etc.) that need mapping when the descriptor lands.
 - Whether Bu0y or Ruvicode ever adopt real x402: the probe harness is the standing
   check; rerun it when either announces support.
 - Whether OpenRouter's live challenges match the published x402 shape: the probe
-  records what is actually seen before policy trusts it.
-- Whether Surplus Intelligence direct adopts x402: pass-through until it does.
+  saw no challenge on the standard API (401); opportunistic handling stands.
+- ~~Whether Surplus Intelligence direct adopts x402~~ answered 2026-10-08: it
+  speaks x402 v2 (`exact` EIP-3009 and `upto` Permit2) plus a Tempo method,
+  with a per-request facilitation fee, so API keys remain the default.
+- Whether Surp's retry wants the v1 `X-Payment` header or v2 `PAYMENT-SIGNATURE`:
+  its instructions say `X-Payment`; the live settlement task confirms.
 - Whether an EVM path to Bu0y key minting ever appears: minting stays manual until
   then.
 - Where the test wallet's key lives on this machine: a `!command` against the
@@ -388,6 +394,10 @@ sit in the file, and the signer address is derivable, so logs can show it safely
 
 ## Changelog
 
+- 0.3 (2026-10-08): probe results landed (`docs/probe-results.md`). Surp and
+  Surplus Intelligence both speak x402 v2 with `amount` and `payment-required`;
+  Ruvicode's base URL resolved to `https://api.ruvicode.com/v1`; Bu0y, OpenRouter,
+  and Ruvicode are key-gated 401s. Ruvicode's catalog has its own shape.
 - 0.2 (2026-10-07): added Bu0y and Ruvicode (R-8, R-9), the non-x402 402 rule
   (R-3) after Bu0y's docs showed 402 means low balance, and the probe requirement
   (R-10); re-cut the phases so probing leads.
