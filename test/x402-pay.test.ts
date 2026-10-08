@@ -145,3 +145,44 @@ test("the retry re-sends the identical request body bytes", async () => {
 	assert.equal(bodies[0], body);
 	assert.equal(bodies[1], body);
 });
+
+test("a 402 from a host outside the allowlist passes through unsigned", async () => {
+	let signCount = 0;
+	const countingSigner = new Proxy(wallet, {
+		get(target, prop, receiver) {
+			if (prop === "signTypedData") signCount += 1;
+			return Reflect.get(target, prop, receiver);
+		},
+	});
+	const stub: typeof fetch = async () => challengeResponse();
+	const pay = payingFetch(stub, { ...CONFIG, signer: countingSigner, allowedHosts: ["surp.ivc.lol"] });
+	const response = await pay("https://openrouter.ai/api/v1/chat/completions", { method: "POST", body: "{}" });
+	assert.equal(response.status, 402);
+	assert.equal(signCount, 0);
+});
+
+test("an allowlisted host pays; the default set covers surp and surplus", async () => {
+	const stub: typeof fetch = async () => challengeResponse();
+	const pay = payingFetch(stub, { ...CONFIG, allowedHosts: ["surp.ivc.lol", "api.surplusintelligence.ai"] });
+	for (const url of [
+		"https://surp.ivc.lol/v1/chat/completions",
+		"https://api.surplusintelligence.ai/v1/chat/completions",
+	]) {
+		const calls: (string | null)[] = [];
+		const counting: typeof fetch = async (input, init) => {
+			calls.push(new Request(input, init).headers.get("x-payment"));
+			return calls.length === 1 ? challengeResponse() : okResponse();
+		};
+		const response = await payingFetch(counting, { ...CONFIG, allowedHosts: ["surp.ivc.lol", "api.surplusintelligence.ai"] })(url, { method: "POST", body: "{}" });
+		assert.equal(response.status, 200, url);
+		assert.ok(calls[1], `paid retry for ${url}`);
+	}
+	void stub; void pay;
+});
+
+test("an empty allowlist pays nothing, even with a valid challenge", async () => {
+	const stub: typeof fetch = async () => challengeResponse();
+	const pay = payingFetch(stub, { ...CONFIG, allowedHosts: [] });
+	const response = await pay("https://surp.ivc.lol/v1/chat/completions", { method: "POST", body: "{}" });
+	assert.equal(response.status, 402);
+});

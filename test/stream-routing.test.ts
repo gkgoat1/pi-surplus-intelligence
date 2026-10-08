@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Model } from "@earendil-works/pi-ai";
 import { configurePreferredProviders } from "../src/preferred-providers.ts";
-import { createGatewayStreamSimple, maxAttemptsForModel } from "../src/stream.ts";
+import { createGatewayStreamSimple, maxAttemptsForModel, optionsForUpstream } from "../src/stream.ts";
 
 class RecordingStream implements AsyncIterable<any> {
 	readonly events: any[] = [];
@@ -484,4 +484,28 @@ test("maxAttemptsForModel keeps the generous budget for other providers", () => 
 		assert.equal(maxAttemptsForModel({ provider } as any), 15, provider);
 	}
 	assert.equal(maxAttemptsForModel({ provider: "unknown" } as any), 15);
+});
+
+// --- Phase 3: the paying fetch survives the preferred-route auth rewrite ---
+
+test("optionsForUpstream preserves a caller fetch across the route auth rewrite", () => {
+	const paying = (async () => new Response()) as typeof fetch;
+	const route = {
+		auth: { apiKey: "route-key", headers: { "x-route": "1" }, env: { ROUTE_ENV: "x" } },
+	} as any;
+	const rewritten = optionsForUpstream(
+		{ fetch: paying, apiKey: "surplus-key", headers: { Authorization: "Bearer surplus-key" } },
+		route,
+	);
+	assert.equal(rewritten.fetch, paying, "the paying fetch must survive");
+	assert.equal(rewritten.apiKey, "route-key");
+	assert.deepEqual(rewritten.headers, { "x-route": "1" });
+});
+
+test("optionsForUpstream without a route copies options, fetch included", () => {
+	const paying = (async () => new Response()) as typeof fetch;
+	const original = { fetch: paying, apiKey: "k" };
+	const out = optionsForUpstream(original, undefined);
+	assert.equal(out.fetch, paying);
+	assert.notEqual(out, original, "a copy, so payment injection never mutates the caller's options");
 });

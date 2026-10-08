@@ -65,7 +65,7 @@ export function configurePayments(
 	}
 	const maxPerRequestUsdc = config.maxPerRequestUsdc ?? DEFAULT_MAX_PER_REQUEST_USDC;
 	const allowedHosts = config.allowedHosts ?? DEFAULT_ALLOWED_HOSTS;
-	const payingConfig = { signer: resolved.signer, maxPerRequestUsdc };
+	const payingConfig = { signer: resolved.signer, maxPerRequestUsdc, allowedHosts };
 	const fetchWithPay = createPayingFetch(globalThis.fetch, payingConfig);
 	// Direct call sites (Responses-API path, model discovery) call the global
 	// fetch; wrap it so they pay too. Idempotent via the marker.

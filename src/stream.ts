@@ -191,7 +191,7 @@ async function* retryFailedAssistantResponses(
 }
 
 // Re-exported for tests.
-export { maxAttemptsForModel };
+export { maxAttemptsForModel, optionsForUpstream };
 
 function optionsForUpstream(
 	options: SimpleStreamOptions | undefined,

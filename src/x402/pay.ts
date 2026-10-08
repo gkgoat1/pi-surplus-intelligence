@@ -27,6 +27,12 @@ export type PayingFetchConfig = {
 	signer: Signer;
 	/** Hard per-request ceiling in USDC. Phase 4 makes this configurable. */
 	maxPerRequestUsdc: number;
+	/**
+	 * Hosts eligible for payment (exact hostname, case-insensitive).
+	 * Undefined pays any host with a valid challenge; an empty array pays
+	 * none. Sessions seed this from the probe results.
+	 */
+	allowedHosts?: readonly string[];
 	/** Clock override for tests; seconds since the epoch. */
 	nowSeconds?: number;
 };
@@ -68,6 +74,19 @@ export function payingFetch(baseFetch: typeof fetch, config: PayingFetchConfig):
 		const original = new Request(input, init);
 		const firstResponse = await baseFetch(original.clone());
 		if (firstResponse.status !== 402) return firstResponse;
+		if (config.allowedHosts !== undefined) {
+			// `original.url` is normalized by the Request constructor, so this
+			// parse should never fail — fail closed if it somehow does.
+			let hostname = "";
+			try {
+				hostname = new URL(original.url).hostname.toLowerCase();
+			} catch {
+				return firstResponse;
+			}
+			if (!config.allowedHosts.some((host) => host.toLowerCase() === hostname)) {
+				return firstResponse;
+			}
+		}
 
 		// Inspect a clone: parsing consumes the body, and a response we decide
 		// not to pay must reach the caller untouched, body included.
