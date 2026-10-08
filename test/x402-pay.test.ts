@@ -58,12 +58,15 @@ test("happy path: 402 with a challenge is signed and retried once", async () => 
 
 test("a bare 402 passes through untouched and the signer is never invoked", async () => {
 	let signCount = 0;
-	const countingSigner = new Proxy(wallet, {
-		get(target, prop, receiver) {
-			if (prop === "signTypedData") signCount += 1;
-			return Reflect.get(target, prop, receiver);
+	// Count via a wrapper, not a Proxy: ethers Wallets hold private fields,
+	// so a Proxy around one breaks on the first real sign call.
+	const countingSigner = {
+		getAddress: () => wallet.getAddress(),
+		signTypedData: (...args: Parameters<typeof wallet.signTypedData>) => {
+			signCount += 1;
+			return wallet.signTypedData(...args);
 		},
-	});
+	} as unknown as typeof wallet;
 	const stub: typeof fetch = async () =>
 		new Response(JSON.stringify({ error: "insufficient balance", reserveMicros: 32 }), { status: 402 });
 	const pay = payingFetch(stub, { ...CONFIG, signer: countingSigner });
@@ -148,12 +151,15 @@ test("the retry re-sends the identical request body bytes", async () => {
 
 test("a 402 from a host outside the allowlist passes through unsigned", async () => {
 	let signCount = 0;
-	const countingSigner = new Proxy(wallet, {
-		get(target, prop, receiver) {
-			if (prop === "signTypedData") signCount += 1;
-			return Reflect.get(target, prop, receiver);
+	// Count via a wrapper, not a Proxy: ethers Wallets hold private fields,
+	// so a Proxy around one breaks on the first real sign call.
+	const countingSigner = {
+		getAddress: () => wallet.getAddress(),
+		signTypedData: (...args: Parameters<typeof wallet.signTypedData>) => {
+			signCount += 1;
+			return wallet.signTypedData(...args);
 		},
-	});
+	} as unknown as typeof wallet;
 	const stub: typeof fetch = async () => challengeResponse();
 	const pay = payingFetch(stub, { ...CONFIG, signer: countingSigner, allowedHosts: ["surp.ivc.lol"] });
 	const response = await pay("https://openrouter.ai/api/v1/chat/completions", { method: "POST", body: "{}" });
