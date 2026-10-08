@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Wallet } from "ethers";
-import { createPayingFetch, X402_FETCH_MARKER, type PayingFetchMarker } from "../src/x402/hook.ts";
+import { createPayingFetch, installPayingFetch, uninstallPayingFetch, X402_FETCH_MARKER, type PayingFetchMarker } from "../src/x402/hook.ts";
 import type { PayingFetchConfig } from "../src/x402/pay.ts";
 
 const wallet = new Wallet("0x" + "0".repeat(63) + "1");
@@ -95,4 +95,41 @@ test("a non-paying caller sees an ordinary fetch-shaped function", async () => {
 	const response = await wrapped("https://example.com");
 	assert.equal(response.status, 200);
 	assert.equal(await response.text(), "plain");
+});
+
+test("installPayingFetch wraps the host fetch; uninstall restores identity", async () => {
+	const original = (async () =>
+		new Response(JSON.stringify(CHALLENGE), { status: 402, headers: { "content-type": "application/json" } })) as typeof fetch;
+	const host = { fetch: original };
+	const installed = installPayingFetch(host, CONFIG);
+	assert.notEqual(host.fetch, original);
+	assert.ok(markerOf(host.fetch));
+	assert.equal(markerOf(host.fetch)?.inner, original);
+
+	installPayingFetch(host, { ...CONFIG, maxPerRequestUsdc: 1 });
+	assert.equal(host.fetch, installed, "second install reuses the same hook");
+	assert.equal(markerOf(host.fetch)?.inner, original);
+
+	uninstallPayingFetch(host);
+	assert.equal(host.fetch, original, "uninstall restores the exact prior fetch");
+	uninstallPayingFetch(host);
+	assert.equal(host.fetch, original, "uninstall is a no-op when not ours");
+});
+
+test("a 402 through an installed global hook gets signed", async () => {
+	let n = 0;
+	const host = {
+		fetch: (async () => {
+			n += 1;
+			return n === 1
+				? new Response(JSON.stringify(CHALLENGE), { status: 402, headers: { "content-type": "application/json" } })
+				: new Response("{\"ok\":true}", { status: 200 });
+		}) as typeof fetch,
+	};
+	installPayingFetch(host, CONFIG);
+	// Direct call, as src/responses-tools.ts and src/models.ts make them.
+	const response = await host.fetch("https://surp.ivc.lol/v1/chat/completions", { method: "POST", body: "{}" });
+	assert.equal(response.status, 200);
+	assert.equal(n, 2);
+	uninstallPayingFetch(host);
 });

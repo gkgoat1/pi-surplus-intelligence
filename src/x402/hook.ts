@@ -19,6 +19,8 @@
  */
 import { payingFetch, type PayingFetchConfig } from "./pay.ts";
 
+type FetchHost = { fetch: typeof fetch };
+
 export const X402_FETCH_MARKER: unique symbol = Symbol.for("pi-surplus-intelligence:x402-fetch");
 
 export type PayingFetchMarker = {
@@ -64,4 +66,24 @@ export function createPayingFetch(baseFetch: typeof fetch, config: PayingFetchCo
 			return Reflect.getOwnPropertyDescriptor(fn, prop);
 		},
 	});
+}
+
+/**
+ * Install the paying fetch onto a host object's `fetch` property (typically
+ * `globalThis`). Idempotent via the marker: installing twice updates the
+ * existing hook's config and never stacks a second loop. Returns the
+ * installed fetch. Only call this when a wallet is configured.
+ */
+export function installPayingFetch(host: FetchHost, config: PayingFetchConfig): typeof fetch {
+	host.fetch = createPayingFetch(host.fetch, config);
+	return host.fetch;
+}
+
+/**
+ * Restore the host's fetch to what it was before `installPayingFetch`.
+ * No-op when the current fetch is not one of ours.
+ */
+export function uninstallPayingFetch(host: FetchHost): void {
+	const marker = (host.fetch as MarkedFetch)[X402_FETCH_MARKER];
+	if (marker) host.fetch = marker.inner;
 }

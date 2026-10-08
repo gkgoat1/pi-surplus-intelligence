@@ -10,7 +10,7 @@
  * Without a configured wallet this module is inert: no fetch is wrapped and
  * nothing about provider requests changes.
  */
-import { createPayingFetch } from "./hook.ts";
+import { createPayingFetch, installPayingFetch, uninstallPayingFetch } from "./hook.ts";
 import { resolveWallet } from "./wallet.ts";
 import type { Signer } from "ethers";
 
@@ -65,10 +65,11 @@ export function configurePayments(
 	}
 	const maxPerRequestUsdc = config.maxPerRequestUsdc ?? DEFAULT_MAX_PER_REQUEST_USDC;
 	const allowedHosts = config.allowedHosts ?? DEFAULT_ALLOWED_HOSTS;
-	const fetchWithPay = createPayingFetch(globalThis.fetch, {
-		signer: resolved.signer,
-		maxPerRequestUsdc,
-	});
+	const payingConfig = { signer: resolved.signer, maxPerRequestUsdc };
+	const fetchWithPay = createPayingFetch(globalThis.fetch, payingConfig);
+	// Direct call sites (Responses-API path, model discovery) call the global
+	// fetch; wrap it so they pay too. Idempotent via the marker.
+	installPayingFetch(globalThis, payingConfig);
 	sessions.set(sessionId, {
 		signer: resolved.signer,
 		address: resolved.address,
@@ -85,4 +86,6 @@ export function paymentState(sessionId: string | undefined): PaymentState | unde
 
 export function releasePayments(sessionId: string): void {
 	sessions.delete(sessionId);
+	// Restore the global fetch only when no other session still needs it.
+	if (sessions.size === 0) uninstallPayingFetch(globalThis);
 }
