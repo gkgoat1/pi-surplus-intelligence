@@ -23,6 +23,7 @@ import {
 	updatePreferredProviderStatus,
 } from "./src/preferred-providers.ts";
 import { configureFingerprint, releaseFingerprint } from "./src/fingerprint.ts";
+import { configurePayments, releasePayments } from "./src/x402/payments.ts";
 import { createGatewayStreamSimple } from "./src/stream.ts";
 import {
 	configureThinkingCompression,
@@ -128,7 +129,7 @@ export default async function (pi: ExtensionAPI) {
 		}
 	}
 
-	pi.on("session_start", (event, ctx) => {
+	pi.on("session_start", (_event, ctx) => {
 		const [preferredDiagnostic, compressionDiagnostic] = [
 			configurePreferredProviders({
 				sessionId: ctx.sessionManager.getSessionId(),
@@ -147,7 +148,10 @@ export default async function (pi: ExtensionAPI) {
 				trusted: ctx.isProjectTrusted(),
 			}),
 		];
-		for (const diagnostic of [preferredDiagnostic, compressionDiagnostic]) {
+		// Wallet key source lives in the config file's `payments` section
+		// (parsed fully in Phase 4); until then, `X402_WALLET_KEY` is the source.
+		const paymentsDiagnostic = configurePayments(ctx.sessionManager.getSessionId(), {});
+		for (const diagnostic of [preferredDiagnostic, compressionDiagnostic, paymentsDiagnostic]) {
 			if (diagnostic) notifyWithFlagMetadata(ctx.ui, diagnostic, "configuration");
 		}
 		updatePreferredProviderStatus(ctx.model, ctx.sessionManager.getSessionId());
@@ -174,5 +178,6 @@ export default async function (pi: ExtensionAPI) {
 		releasePreferredProviders(sessionId);
 		releaseThinkingCompression(sessionId);
 		releaseFingerprint(sessionId);
+		releasePayments(sessionId);
 	});
 }

@@ -26,6 +26,7 @@ import { analyzeResponse, notifyFingerprintWarning } from "./fingerprint.ts";
 import { clampGatewayThinkingLevel, usesOpenAIResponsesApi } from "./models.ts";
 import { createResponsesToolStream } from "./responses-tools.ts";
 import { claimedUpstreamError, upstreamClaimedErrorMessage } from "./upstream-error.ts";
+import { paymentState } from "./x402/payments.ts";
 
 const MAX_RESPONSE_ATTEMPTS = 15;
 const INITIAL_RETRY_DELAY_MS = 500;
@@ -196,7 +197,7 @@ function optionsForUpstream(
 	options: SimpleStreamOptions | undefined,
 	route: PreferredRoute | undefined,
 ): SimpleStreamOptions {
-	if (!route) return options ?? {};
+	if (!route) return { ...(options ?? {}) };
 	const { apiKey: _surplusApiKey, headers: _surplusHeaders, env: _surplusEnv, ...rest } = options ?? {};
 	return {
 		...rest,
@@ -234,6 +235,16 @@ export function createGatewayStreamSimple(
 				}
 
 				const preparedOptions = optionsForUpstream(options, route);
+				// Attach the paying fetch when a wallet is configured. It survives
+				// the preferred-route auth rewrite (optionsForUpstream only replaces
+				// apiKey/headers/env), so external routes get opportunistic x402
+				// per policy. A caller-supplied fetch that already carries the
+				// marker is left alone; anything else is wrapped by the session's
+				// paying fetch as the innermost hook.
+				const payments = paymentState(options?.sessionId);
+				if (payments && preparedOptions.fetch === undefined) {
+					preparedOptions.fetch = payments.fetch;
+				}
 				const minimumSavings = !route ? minimumSavingsForModel(model, options?.sessionId) : undefined;
 				const upstreamModel = minimumSavings === undefined
 					? model
