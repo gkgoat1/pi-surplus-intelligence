@@ -14,7 +14,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { PROVIDERS } from "./src/constants.ts";
 import { anthropicClaudeModels, fetchModels, fallbackModels } from "./src/models.ts";
-import { loadProvidersFileConfig, resolveProviderCredentials } from "./src/provider-config.ts";
+import {
+	loadProvidersFileConfig,
+	loadPaymentsFileConfig,
+	resolveProviderCredentials,
+} from "./src/provider-config.ts";
 import { loadStreamHelpers } from "./src/loader.ts";
 import {
 	clearPreferredProviderStatus,
@@ -23,7 +27,7 @@ import {
 	updatePreferredProviderStatus,
 } from "./src/preferred-providers.ts";
 import { configureFingerprint, releaseFingerprint } from "./src/fingerprint.ts";
-import { configurePayments, releasePayments } from "./src/x402/payments.ts";
+import { configurePayments, releasePayments, updatePaymentStatus } from "./src/x402/payments.ts";
 import { createGatewayStreamSimple } from "./src/stream.ts";
 import {
 	configureThinkingCompression,
@@ -66,7 +70,8 @@ export default async function (pi: ExtensionAPI) {
 	}
 
 	const { providers: fileConfig, diagnostics } = loadProvidersFileConfig(homedir());
-	for (const diagnostic of diagnostics) {
+	const { payments: paymentsFileConfig, diagnostics: paymentsDiagnostics } = loadPaymentsFileConfig(homedir());
+	for (const diagnostic of [...diagnostics, ...paymentsDiagnostics]) {
 		console.error(`pi-surplus-intelligence: ${diagnostic}`);
 	}
 
@@ -148,9 +153,17 @@ export default async function (pi: ExtensionAPI) {
 				trusted: ctx.isProjectTrusted(),
 			}),
 		];
-		// Wallet key source lives in the config file's `payments` section
-		// (parsed fully in Phase 4); until then, `X402_WALLET_KEY` is the source.
-		const paymentsDiagnostic = configurePayments(ctx.sessionManager.getSessionId(), {});
+		const paymentsDiagnostic = configurePayments(
+			ctx.sessionManager.getSessionId(),
+			{
+				walletPrivateKey: paymentsFileConfig?.privateKey,
+				maxPerRequestUsdc: paymentsFileConfig?.maxPerRequestUsdc,
+				maxPerDayUsdc: paymentsFileConfig?.maxPerDayUsdc,
+				allowedHosts: paymentsFileConfig?.allowedHosts,
+			},
+			{ cwd: ctx.cwd, ui: ctx.ui, mode: ctx.mode },
+		);
+		updatePaymentStatus(ctx.sessionManager.getSessionId());
 		for (const diagnostic of [preferredDiagnostic, compressionDiagnostic, paymentsDiagnostic]) {
 			if (diagnostic) notifyWithFlagMetadata(ctx.ui, diagnostic, "configuration");
 		}
@@ -166,6 +179,7 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", (_event, ctx) => {
 		updatePreferredProviderStatus(ctx.model, ctx.sessionManager.getSessionId());
+		updatePaymentStatus(ctx.sessionManager.getSessionId());
 	});
 
 	pi.on("model_select", (event, ctx) => {

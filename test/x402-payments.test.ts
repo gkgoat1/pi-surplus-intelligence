@@ -5,11 +5,13 @@ import {
 	hostAllowed,
 	paymentState,
 	releasePayments,
+	updatePaymentStatus,
+	paymentStatusText,
 	DEFAULT_ALLOWED_HOSTS,
 } from "../src/x402/payments.ts";
 import { X402_FETCH_MARKER } from "../src/x402/hook.ts";
 
-const TEST_KEY = "0x" + "0".repeat(63) + "1";
+const TEST_KEY = `0x${"0".repeat(63)}1`;
 const TEST_ADDRESS = "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf";
 
 test("no wallet configured leaves payments off and stays silent", () => {
@@ -87,4 +89,46 @@ test("a wallet signer pays a live-shaped 402 through the session fetch", async (
 		globalThis.fetch = originalFetch;
 		releasePayments("s4");
 	}
+});
+
+test("paymentStatusText renders wallet and daily spend", () => {
+	assert.equal(paymentStatusText(undefined), undefined);
+	const base = {
+		signer: undefined as never, // formatting never touches the signer
+		address: "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
+		fetch: (async () => new Response()) as typeof fetch,
+		allowedHosts: [],
+		maxPerRequestUsdc: 0.25,
+		ledger: { record() {} },
+	};
+	assert.equal(
+		paymentStatusText({ ...base, dailySpend: { dateUtc: "2026-10-08", spentUsdc: 0.0312 }, maxPerDayUsdc: 5 }),
+		"x402 0x7E5F…5Bdf · $0.0312 / $5.0000 today",
+	);
+	assert.equal(
+		paymentStatusText({ ...base, dailySpend: { dateUtc: "2026-10-08", spentUsdc: 0 }, maxPerDayUsdc: undefined }),
+		"x402 0x7E5F…5Bdf · $0.0000 today",
+	);
+	assert.equal(
+		paymentStatusText({ ...base, dailySpend: { dateUtc: "2026-10-08", spentUsdc: 5 }, maxPerDayUsdc: 5 }),
+		"x402 0x7E5F…5Bdf · $5.0000 / $5.0000 today (at cap)",
+	);
+});
+
+test("updatePaymentStatus is TUI-only and clears without a wallet", () => {
+	const statuses: (string | undefined)[] = [];
+	const ui = { setStatus: (_key: string, text: string | undefined) => void statuses.push(text) };
+
+	configurePayments("s-tui", {}, { env: { X402_WALLET_KEY: TEST_KEY }, ui, mode: "tui" });
+	updatePaymentStatus("s-tui");
+	assert.ok(statuses.some((s) => s?.startsWith("x402 0x7E5F…")), "TUI shows the armed wallet");
+	releasePayments("s-tui");
+	assert.equal(statuses.at(-1), undefined, "release clears the status");
+
+	const rpcStatuses: (string | undefined)[] = [];
+	const rpcUi = { setStatus: (_key: string, text: string | undefined) => void rpcStatuses.push(text) };
+	configurePayments("s-rpc", {}, { env: { X402_WALLET_KEY: TEST_KEY }, ui: rpcUi, mode: "rpc" });
+	updatePaymentStatus("s-rpc");
+	assert.deepEqual(rpcStatuses, [], "RPC mode emits no status");
+	releasePayments("s-rpc");
 });
