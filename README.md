@@ -179,6 +179,42 @@ conflicts with other extensions calling `pi.setModel` or executing separate
 agents. In interactive Pi, the footer identifies the preferred upstream or its
 cooldown state. The status is not emitted in print, JSON, or RPC modes.
 
+## Payments (x402)
+
+Surp and Surplus Intelligence answer paid requests with `402 Payment
+Required` carrying an x402 challenge (USDC on Base, EIP-3009). With a wallet
+configured, the extension signs and retries automatically; without one,
+nothing changes and `surp/free` still works keyless.
+
+```json
+{
+  "payments": {
+    "wallet": { "privateKey": "$X402_WALLET_KEY" },
+    "maxPerRequestUsdc": 0.25,
+    "maxPerDayUsdc": 5,
+    "allowedHosts": ["surp.ivc.lol", "api.surplusintelligence.ai"]
+  }
+}
+```
+
+The wallet key follows Pi's config-value syntax (literal, `$VAR`, or
+`!command`); `X402_WALLET_KEY` in the environment is the fallback. Only the
+derived address is ever displayed. The wallet needs USDC on Base, not ETH —
+the facilitator pays gas.
+
+Safety defaults: payments fire only for hosts that probed as real x402
+speakers (`docs/probe-results.md`), a bare 402 (like Bu0y's
+insufficient-balance signal) is never paid, and each request costs at most
+`maxPerRequestUsdc` with a hard `maxPerDayUsdc` day cap. Every settled
+payment and refusal is appended to `.pi/x402-ledger.jsonl` with amount,
+reason, and settlement transaction. The TUI footer shows the armed wallet
+and today's spend.
+
+The paying fetch is a composable hook: a `Proxy` with a global marker key
+(`Symbol.for("pi-surplus-intelligence:x402-fetch")`) that other extensions
+can detect, wrap, and reconfigure without stacking payment loops. See
+[docs/x402-composition.md](docs/x402-composition.md).
+
 ## Pi version compatibility
 
 This extension supports Pi >= 0.84.0. It is verified through Pi 1.0.0,
