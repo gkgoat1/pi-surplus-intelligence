@@ -38,6 +38,21 @@ lists load even without a key (probed in `docs/probe-results.md`). Surp's
 answer `402 Payment Required` with an x402 challenge — see
 `docs/plans/x402-fetch-hook.md` for the wallet-payment work.
 
+Keyless providers are registered with a sentinel placeholder key, because Pi
+refuses to send requests for providers with no configured auth at all. The
+sentinel never reaches the wire: `authHeader` stays off and the stream layer
+strips the Authorization header the OpenAI SDK would otherwise add. A real
+key (env or config) replaces the sentinel and is sent normally.
+
+Model IDs containing slashes (the `surp/*` routes) need the provider prefix
+doubled on the CLI, since `--model` splits on the first slash:
+`pi --model surp/surp/free`. The interactive `/model` picker lists them
+directly.
+
+Surp's keyless failures surface immediately: a paid route without a wallet
+or key reports its 402 challenge instead of retrying, since permanent 4xx
+errors (401/402/403/404) no longer consume the retry budget.
+
 Run Pi from this repo:
 
 ```bash
@@ -217,7 +232,13 @@ can detect, wrap, and reconfigure without stacking payment loops. See
 
 ## Pi version compatibility
 
-This extension supports Pi >= 0.84.0. It is verified through Pi 1.0.0,
+This extension supports Pi >= 0.84.0. Its types and tests run against Pi
+1.3.0 (`@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai` are
+devDependencies for this purpose), and it is smoke-tested live against the
+Pi 1.2.0 CLI. Pi 1.x normalized provider contexts to `TranscriptContext` and
+types custom `streamSimple` handlers against it; the extension's handlers
+accept that shape structurally, so no code change was needed. It is verified
+through Pi 1.3.0,
 including Pi >= 0.86's normalized `TranscriptContext` for custom providers
 (system prompt and tool declarations folded into `role: "system"` transcript
 entries instead of `Context.systemPrompt` / `Context.tools`). The GPT-5+ Responses

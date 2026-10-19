@@ -40,10 +40,36 @@ const MAX_RETRY_DELAY_MS = 60_000;
  */
 const PREPAID_FILL_MAX_ATTEMPTS = 2;
 
+/**
+ * Placeholder API key for keyless-capable providers. Pi's agent-session gate
+ * refuses requests for providers with no configured auth, so these providers
+ * register with this sentinel when no real key exists (authHeader: false
+ * keeps it off the wire). The stream layer must never turn it into a Bearer
+ * header.
+ */
+export const KEYLESS_SENTINEL = "x402-keyless";
+
 function maxAttemptsForModel(model: Model<Api>): number {
 	return PROVIDER_BY_ID.get(model.provider)?.catalog === "bu0y"
 		? PREPAID_FILL_MAX_ATTEMPTS
 		: MAX_RESPONSE_ATTEMPTS;
+}
+
+/**
+ * pi-ai's OpenAI client always sends `Authorization: Bearer <apiKey>` when
+ * `options.apiKey` is set, so the keyless sentinel would reach the wire and
+ * gateways answer 401 (observed: Surp's `401 "invalid API key"`). For
+ * keyless-capable providers carrying the sentinel, wrap the fetch to drop
+ * the Authorization header; real keys flow through the SDK untouched.
+ */
+function stripAuthorizationFetch(baseFetch: typeof fetch): typeof fetch {
+	return async (input: RequestInfo | URL, init?: RequestInit) => {
+		const request = new Request(input, init);
+		if (!request.headers.has("authorization")) return baseFetch(request);
+		const headers = new Headers(request.headers);
+		headers.delete("authorization");
+		return baseFetch(new Request(request, { headers }));
+	};
 }
 
 /**
@@ -74,6 +100,18 @@ function retryDelayMs(attempt: number): number {
 		INITIAL_RETRY_DELAY_MS * 2 ** (attempt - 1),
 		MAX_RETRY_DELAY_MS,
 	);
+}
+
+/**
+ * Permanent request failures (auth, payment, unknown model) never succeed on
+ * retry. Without this guard a keyless request to a paid route — Surp's 402 —
+ * would burn the full 15-attempt backoff budget before failing. 429 stays
+ * retryable: rate limits clear.
+ */
+const PERMANENT_STATUS_RE = /\b(401|402|403|404)\b/;
+
+function isPermanentRequestError(message: unknown): boolean {
+	return typeof message === "string" && PERMANENT_STATUS_RE.test(message);
 }
 
 function hasAssistantOutput(message: AssistantMessage): boolean {
@@ -149,6 +187,10 @@ async function* retryFailedAssistantResponses(
 				}
 
 				if (event.type === "error") {
+					if (isPermanentRequestError(event.error?.errorMessage)) {
+						if (!forwarded) for (const bufferedEvent of buffered) yield bufferedEvent;
+						return;
+					}
 					if (forwarded || signal?.aborted || attempt === maxAttempts) {
 						if (!forwarded) for (const bufferedEvent of buffered) yield bufferedEvent;
 						return;
@@ -191,7 +233,7 @@ async function* retryFailedAssistantResponses(
 }
 
 // Re-exported for tests.
-export { maxAttemptsForModel, optionsForUpstream };
+export { maxAttemptsForModel, optionsForUpstream, stripAuthorizationFetch };
 
 function optionsForUpstream(
 	options: SimpleStreamOptions | undefined,
@@ -254,6 +296,15 @@ export function createGatewayStreamSimple(
 				};
 				if (transformHeaders) {
 					upstreamOptions.headers = await transformHeaders(upstreamOptions.headers ?? {});
+				}
+				// Preferred routes carry their own auth; the sentinel strip only
+				// applies to direct keyless requests.
+				if (
+					!route &&
+					PROVIDER_BY_ID.get(model.provider)?.allowsKeylessRequests &&
+					upstreamOptions.apiKey === KEYLESS_SENTINEL
+				) {
+					upstreamOptions.fetch = stripAuthorizationFetch(upstreamOptions.fetch ?? fetch);
 				}
 				const originalOnPayload = upstreamOptions.onPayload;
 				const reasoning = options?.reasoning;

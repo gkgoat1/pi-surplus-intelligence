@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Model } from "@earendil-works/pi-ai";
 import { configurePreferredProviders } from "../src/preferred-providers.ts";
-import { createGatewayStreamSimple, maxAttemptsForModel, optionsForUpstream } from "../src/stream.ts";
+import { PROVIDERS } from "../src/constants.ts";
+import { anthropicClaudeModels, mapGatewayModel } from "../src/models.ts";
+import { createGatewayStreamSimple, maxAttemptsForModel, optionsForUpstream, stripAuthorizationFetch, KEYLESS_SENTINEL } from "../src/stream.ts";
 
 class RecordingStream implements AsyncIterable<any> {
 	readonly events: any[] = [];
@@ -508,4 +510,118 @@ test("optionsForUpstream without a route copies options, fetch included", () => 
 	const out = optionsForUpstream(original, undefined);
 	assert.equal(out.fetch, paying);
 	assert.notEqual(out, original, "a copy, so payment injection never mutates the caller's options");
+});
+
+// --- Latest-Pi compatibility: keyless auth and anthropic variant gating ---
+
+test("stripAuthorizationFetch drops the Authorization header, keeps the rest", async () => {
+	const seen: { hasAuth: boolean; other: string | null }[] = [];
+	const stub: typeof fetch = async (input, init) => {
+		const request = new Request(input, init);
+		seen.push({ hasAuth: request.headers.has("authorization"), other: request.headers.get("x-other") });
+		return new Response("{}", { status: 200 });
+	};
+	const stripped = stripAuthorizationFetch(stub);
+	await stripped("https://surp.ivc.lol/v1/chat/completions", {
+		method: "POST",
+		headers: { Authorization: `Bearer ${KEYLESS_SENTINEL}`, "x-other": "1" },
+		body: "{}",
+	});
+	assert.deepEqual(seen, [{ hasAuth: false, other: "1" }]);
+});
+
+test("stripAuthorizationFetch passes requests without Authorization through untouched", async () => {
+	const seen: string[] = [];
+	const stub: typeof fetch = async (input, init) => {
+		seen.push(new Request(input, init).url);
+		return new Response("{}", { status: 200 });
+	};
+	const stripped = stripAuthorizationFetch(stub);
+	const response = await stripped("https://surp.ivc.lol/v1/models");
+	assert.equal(response.status, 200);
+	assert.equal(seen.length, 1);
+});
+
+test("only gateways with a confirmed Anthropic endpoint spawn -anthropic variants", () => {
+	const claudeCatalog = [{ id: "claude-fable-5", name: "Claude Fable 5" }];
+	const withSupport = PROVIDERS.filter((d) => d.supportsAnthropicMessages).map((d) => d.id);
+	assert.deepEqual([...withSupport].sort(), ["cheaper-inference", "inferhub", "surplus-intelligence"]);
+	// The filter the registration loop uses.
+	for (const descriptor of PROVIDERS) {
+		const variants = descriptor.supportsAnthropicMessages ? anthropicClaudeModels(claudeCatalog) : [];
+		if (["surp", "bu0y", "ruvicode"].includes(descriptor.id)) {
+			assert.deepEqual(variants, [], `${descriptor.id} must not spawn an -anthropic variant`);
+		}
+	}
+});
+
+test("a Surp combo naming a Claude model does not become an -anthropic model", () => {
+	// Regression: combo names embed the resolved model ("surp/value → claude-…"),
+	// and the id/name match would previously register it against a
+	// nonexistent /anthropic endpoint.
+	const surp = PROVIDERS.find((d) => d.id === "surp")!;
+	const combo = mapGatewayModel({ combo: "surp/value", resolved_model: "claude-sonnet-5" }, surp);
+	assert.match(combo.name, /claude/);
+	assert.equal(surp.supportsAnthropicMessages ?? false, false);
+});
+
+
+test("permanent 4xx errors are not retried through the backoff budget", async () => {
+	const selectedModel = model("surp/value");
+	let attempts = 0;
+	const helper = helpersWith({
+		completionsStream: () => {
+			attempts += 1;
+			return (async function* () {
+				yield {
+					type: "error",
+					reason: "error",
+					error: { role: "assistant", content: [], errorMessage: "402 Payment Required", stopReason: "error" },
+				};
+			})();
+		},
+	});
+	configureEmptyPreferredRoutes("perm-402");
+
+	helper.streamSimple({ ...selectedModel, provider: "surp" }, { messages: [], tools: [] } as any, {
+		sessionId: "perm-402",
+	});
+	await helper.sink.finished;
+
+	assert.equal(attempts, 1, "a 402 surfaces immediately, not after 15 retries");
+	const last = helper.sink.events.at(-1);
+	assert.equal(last.type, "error");
+	assert.match(last.error.errorMessage, /402/);
+});
+
+test("transient errors still retry through the backoff budget", async () => {
+	const selectedModel = model("kimi-k2.7-code");
+	let attempts = 0;
+	const answer = completedMessage(selectedModel, "recovered");
+	const helper = helpersWith({
+		completionsStream: () => {
+			attempts += 1;
+			if (attempts < 2) {
+				return (async function* () {
+					yield {
+						type: "error",
+						reason: "error",
+						error: { role: "assistant", content: [], errorMessage: "502 Bad Gateway", stopReason: "error" },
+					};
+				})();
+			}
+			return (async function* () {
+				yield { type: "start", partial: answer };
+				yield { type: "text_delta", contentIndex: 0, delta: "recovered", partial: answer };
+				yield { type: "done", reason: "stop", message: answer };
+			})();
+		},
+	});
+	configureEmptyPreferredRoutes("transient-502");
+
+	helper.streamSimple(selectedModel, { messages: [], tools: [] } as any, { sessionId: "transient-502" });
+	await helper.sink.finished;
+
+	assert.equal(attempts, 2, "a 502 retries and recovers");
+	assert.equal(helper.sink.events.at(-1).type, "done");
 });

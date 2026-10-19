@@ -41,9 +41,19 @@ export type ProviderDescriptor = {
 	 * Whether a request may proceed with no API key at all. Surp's `surp/free`
 	 * route works unauthenticated; other keyless providers register their
 	 * catalogs but need a key (or, for Surp's paid routes, the Phase 3 wallet
-	 * hook) to serve inference.
+	 * hook) to serve inference. Such providers register with
+	 * `authHeader: false` (Pi refuses keyless requests otherwise) and the
+	 * stream layer adds the Bearer header itself when a key exists.
 	 */
 	allowsKeylessRequests?: boolean;
+	/**
+	 * Whether the gateway exposes an Anthropic Messages endpoint and Claude
+	 * models should also register under a `-anthropic` provider. Only the
+	 * three original gateways are known to support it; Surp/Bu0y/Ruvicode have
+	 * no confirmed Anthropic-compatible endpoint, so they must not spawn
+	 * variants that would fail at request time.
+	 */
+	supportsAnthropicMessages?: boolean;
 };
 
 export const SURPLUS_INTELLIGENCE: ProviderDescriptor = {
@@ -56,6 +66,7 @@ export const SURPLUS_INTELLIGENCE: ProviderDescriptor = {
 	api: "surplus-openai-completions",
 	supportsSavingsRouting: true,
 	catalog: "surplus",
+	supportsAnthropicMessages: true,
 };
 
 export const INFERHUB: ProviderDescriptor = {
@@ -68,6 +79,7 @@ export const INFERHUB: ProviderDescriptor = {
 	api: "inferhub-openai-completions",
 	supportsSavingsRouting: false,
 	catalog: "inferhub",
+	supportsAnthropicMessages: true,
 };
 
 export const CHEAPER_INFERENCE: ProviderDescriptor = {
@@ -80,6 +92,7 @@ export const CHEAPER_INFERENCE: ProviderDescriptor = {
 	api: "openai-completions",
 	supportsSavingsRouting: false,
 	catalog: "cheaper-inference",
+	supportsAnthropicMessages: true,
 };
 
 export const SURP: ProviderDescriptor = {

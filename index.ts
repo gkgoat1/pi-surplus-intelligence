@@ -28,7 +28,7 @@ import {
 } from "./src/preferred-providers.ts";
 import { configureFingerprint, releaseFingerprint } from "./src/fingerprint.ts";
 import { configurePayments, releasePayments, updatePaymentStatus } from "./src/x402/payments.ts";
-import { createGatewayStreamSimple } from "./src/stream.ts";
+import { createGatewayStreamSimple, KEYLESS_SENTINEL } from "./src/stream.ts";
 import {
 	configureThinkingCompression,
 	releaseThinkingCompression,
@@ -103,24 +103,38 @@ export default async function (pi: ExtensionAPI) {
 		// passed as resolved literals.
 		const envTemplate = `$${descriptor.apiKeyEnvVar}`;
 		const fileKey = fileConfig[descriptor.id]?.apiKey;
-		const apiKey =
+		let apiKey =
 			typeof fileKey === "string" && fileKey.trim().length > 0 && fileKey !== envTemplate
 				? credentials.ok && credentials.source === "config"
 					? credentials.apiKey
 					: envTemplate
 				: envTemplate;
+		// Pi's agent-session gate refuses requests for providers with no
+		// configured auth, so keyless-capable providers register a sentinel
+		// placeholder when no real key exists. authHeader: false keeps it off
+		// the wire, and the stream layer never forwards it (KEYLESS_SENTINEL).
+		if (descriptor.allowsKeylessRequests && !credentials.ok) {
+			apiKey = KEYLESS_SENTINEL;
+		}
 
 		pi.registerProvider(descriptor.id, {
 			name: descriptor.name,
 			baseUrl: descriptor.baseUrl,
 			apiKey,
 			api: descriptor.api,
-			authHeader: true,
+			// Keyless-capable providers (Surp's free route) must register without
+			// authHeader: Pi refuses requests for authHeader providers with no
+			// resolved key. The stream layer adds the Bearer header itself when a
+			// key is present (see stream.ts).
+			authHeader: !descriptor.allowsKeylessRequests,
 			models,
 			streamSimple,
 		});
 
-		const claudeModels = anthropicClaudeModels(models);
+		// Only gateways with a confirmed Anthropic Messages endpoint get a
+		// `-anthropic` variant; a Surp combo whose name mentions a Claude model
+		// must not spawn one against an endpoint that does not exist.
+		const claudeModels = descriptor.supportsAnthropicMessages ? anthropicClaudeModels(models) : [];
 		if (claudeModels.length > 0) {
 			// Use Pi's native Anthropic adapter so Claude thinking blocks, signatures,
 			// and tool-use/result turns follow Anthropic Messages semantics end to end.
