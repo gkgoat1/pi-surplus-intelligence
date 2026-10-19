@@ -1,4 +1,5 @@
 import type { ProviderDescriptor } from "./constants.ts";
+import { isDecisionsModel } from "./classifiers.ts";
 
 /** GPT-5-family models require the OpenAI Responses endpoint. */
 export function usesOpenAIResponsesApi(modelId: string): boolean {
@@ -281,6 +282,9 @@ function mapRuvicodeEntry(model: unknown, descriptor: ProviderDescriptor): any {
 
 /** Map a catalog entry into a Pi model definition. */
 export function mapGatewayModel(model: unknown, descriptor: ProviderDescriptor): any {
+	// Decisions-rail models (Jev) are classifiers, not chat models; they are
+	// registered through src/classifiers.ts instead.
+	if (isDecisionsModel(model)) return undefined;
 	if (descriptor.catalog === "inferhub") return mapInferhubEntry(model, descriptor);
 	if (descriptor.catalog === "cheaper-inference") return mapCheaperInferenceEntry(model, descriptor);
 	if (descriptor.catalog === "surp") return mapSurpEntry(model, descriptor);
@@ -500,7 +504,7 @@ export function anthropicClaudeModels(models: any[]): any[] {
  * queried without an Authorization header when no key exists. Surp's catalog
  * lists `combos` rather than an OpenAI `data` array.
  */
-export async function fetchModels(descriptor: ProviderDescriptor, apiKey?: string): Promise<any[]> {
+export async function fetchCatalogEntries(descriptor: ProviderDescriptor, apiKey?: string): Promise<unknown[]> {
 	const headers: Record<string, string> = { Accept: "application/json" };
 	if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 	// URLs come from the static PROVIDERS descriptors, never from request data.
@@ -509,7 +513,11 @@ export async function fetchModels(descriptor: ProviderDescriptor, apiKey?: strin
 		throw new Error(`${descriptor.name} /v1/models returned ${response.status}`);
 	}
 	const payload = (await response.json()) as { data?: unknown[]; combos?: unknown[] } | undefined;
-	const entries = payload?.data ?? payload?.combos ?? [];
+	return payload?.data ?? payload?.combos ?? [];
+}
+
+export async function fetchModels(descriptor: ProviderDescriptor, apiKey?: string): Promise<any[]> {
+	const entries = await fetchCatalogEntries(descriptor, apiKey);
 	const models = entries.map((m) => mapGatewayModel(m, descriptor)).filter((m): m is any => m !== undefined);
 	if (models.length === 0) {
 		throw new Error(`${descriptor.name} /v1/models returned no models`);

@@ -1,6 +1,11 @@
 import type {
 	Api,
 	AssistantMessageEventStream,
+	ClassifierContext,
+	ClassifierModel,
+	ClassifierApi,
+	ClassifierOptions,
+	ClassifierResult,
 	Context,
 	Model,
 	SimpleStreamOptions,
@@ -30,6 +35,33 @@ export type TranscriptHelpers = {
 	getCurrentTools: (messages: readonly { role: string }[]) => any[];
 };
 
+/**
+ * pi-ai >= 1.3's transport-pluggable System One runner
+ * (`dist/api/system-one-shared.js`). The extension supplies the transport
+ * (URL, envelope) for the gateway's decisions rail; the runner owns the wire
+ * question mapping (`bool` → `noul`), auth, retries, and answer parsing.
+ */
+/** System One request body without the transport-specific envelope. */
+export type SystemOneWireRequest = {
+	state: ClassifierContext["state"];
+	questions: Record<string, unknown>;
+};
+
+export type SystemOneTransport = {
+	api: ClassifierApi;
+	label: string;
+	url(model: ClassifierModel<ClassifierApi>): URL;
+	payload(model: ClassifierModel<ClassifierApi>, request: SystemOneWireRequest): Record<string, unknown>;
+	output(body: unknown): Record<string, unknown>;
+};
+
+export type ClassifySystemOne = (
+	transport: SystemOneTransport,
+	model: ClassifierModel<ClassifierApi>,
+	context: ClassifierContext,
+	options: ClassifierOptions | undefined,
+) => Promise<ClassifierResult>;
+
 export type StreamHelpers = {
 	completionsStream: BuiltInStream;
 	responsesStream: BuiltInStream;
@@ -37,4 +69,6 @@ export type StreamHelpers = {
 	createAssistantMessageEventStream: CreateAssistantMessageEventStream;
 	/** Present only when the resolved pi-ai exports normalized-transcript helpers. */
 	transcript?: TranscriptHelpers;
+	/** Present only when the resolved pi-ai (>= 1.3) ships the System One runner. */
+	classifySystemOne?: ClassifySystemOne;
 };

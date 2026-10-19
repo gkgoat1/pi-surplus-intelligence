@@ -54,6 +54,13 @@ export type ProviderDescriptor = {
 	 * variants that would fail at request time.
 	 */
 	supportsAnthropicMessages?: boolean;
+	/**
+	 * Whether the gateway serves a `/v1/decisions` rail for classifier
+	 * (decisions) models such as TypeSafe's Jev. Probed 2026-10-19: only
+	 * Surplus Intelligence has one; Surp/Bu0y/Ruvicode 404. See
+	 * src/classifiers.ts.
+	 */
+	supportsClassifiers?: boolean;
 };
 
 export const SURPLUS_INTELLIGENCE: ProviderDescriptor = {
@@ -67,6 +74,7 @@ export const SURPLUS_INTELLIGENCE: ProviderDescriptor = {
 	supportsSavingsRouting: true,
 	catalog: "surplus",
 	supportsAnthropicMessages: true,
+	supportsClassifiers: true,
 };
 
 export const INFERHUB: ProviderDescriptor = {

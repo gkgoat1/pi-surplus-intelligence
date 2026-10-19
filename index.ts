@@ -13,7 +13,13 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { PROVIDERS } from "./src/constants.ts";
-import { anthropicClaudeModels, fetchModels, fallbackModels } from "./src/models.ts";
+import { anthropicClaudeModels, fetchCatalogEntries, fetchModels, fallbackModels, mapGatewayModel } from "./src/models.ts";
+import {
+	classifierFallbackModels,
+	createDecisionsClassifier,
+	DECISIONS_API,
+	mapClassifierModel,
+} from "./src/classifiers.ts";
 import {
 	loadProvidersFileConfig,
 	loadPaymentsFileConfig,
@@ -82,12 +88,35 @@ export default async function (pi: ExtensionAPI) {
 		const credentials = resolveProviderCredentials(descriptor, fileConfig[descriptor.id]);
 
 		let models = fallbackModels(descriptor);
+		// Classifier (decisions-rail) models register only when the host pi-ai
+		// ships the System One runner (pi-ai >= 1.3); older hosts get chat only.
+		const decisionsClassifier =
+			descriptor.supportsClassifiers && helpers.classifySystemOne
+				? createDecisionsClassifier(helpers.classifySystemOne)
+				: undefined;
+		let classifierModels =
+			descriptor.supportsClassifiers && decisionsClassifier ? classifierFallbackModels(descriptor) : [];
 		// Providers with a public catalog (Surp, Bu0y, Ruvicode — probed in
 		// docs/probe-results.md) are discovered without a key; keyed-only
 		// providers keep the old behavior of skipping discovery when keyless.
 		if (credentials.ok || descriptor.publicCatalog) {
 			try {
-				models = await fetchModels(descriptor, credentials.ok ? credentials.apiKey : undefined);
+				if (descriptor.supportsClassifiers && decisionsClassifier) {
+					// Decisions-rail entries (Jev) map to classifier models; the rest
+					// map to chat models. mapGatewayModel already skips decisions
+					// entries so they never register as broken chat models.
+					const entries = await fetchCatalogEntries(descriptor, credentials.ok ? credentials.apiKey : undefined);
+					const chatModels = entries
+						.map((entry) => mapGatewayModel(entry, descriptor))
+						.filter((model): model is any => model !== undefined);
+					const discoveredClassifiers = entries
+						.map((entry) => mapClassifierModel(entry, descriptor))
+						.filter((model): model is any => model !== undefined);
+					if (chatModels.length > 0) models = chatModels;
+					if (discoveredClassifiers.length > 0) classifierModels = discoveredClassifiers;
+				} else {
+					models = await fetchModels(descriptor, credentials.ok ? credentials.apiKey : undefined);
+				}
 			} catch {
 				// Keep fallback models if discovery fails so startup doesn't break.
 			}
@@ -127,8 +156,9 @@ export default async function (pi: ExtensionAPI) {
 			// resolved key. The stream layer adds the Bearer header itself when a
 			// key is present (see stream.ts).
 			authHeader: !descriptor.allowsKeylessRequests,
-			models,
+			models: [...models, ...classifierModels],
 			streamSimple,
+			...(decisionsClassifier ? { classifiers: { [DECISIONS_API]: decisionsClassifier } } : {}),
 		});
 
 		// Only gateways with a confirmed Anthropic Messages endpoint get a

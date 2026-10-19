@@ -19,6 +19,22 @@ Claude models are also registered as separate `*-anthropic` providers using Pi's
 native Anthropic Messages adapter. This sends Claude thinking blocks and tool
 calls/results using Anthropic's native message format.
 
+Classification (decisions) models such as TypeSafe's Jev are registered as
+Pi classifier models under the Surplus Intelligence provider, discovered from
+the live catalog (any entry whose modality is `decisions`). They are served
+through the gateway's `/v1/decisions` rail using pi-ai's System One runner
+(pi-ai >= 1.2; older hosts register chat models only), so codemode scripts
+can run them via `models.classify()`:
+
+```js
+const jev = await models.getModelOfType("classifier", "surplus-intelligence", "jev-1.14");
+const result = await models.classify(jev, { state, questions });
+```
+
+Keyless classification requests carry no Authorization header; with an x402
+wallet configured, the payment hook settles the rail's 402 challenge like any
+other request. With neither, the result is an error carrying the challenge.
+
 ## Usage
 
 Set one or more provider API keys:

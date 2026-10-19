@@ -41,7 +41,23 @@ export async function loadStreamHelpers(): Promise<StreamHelpers> {
 		responsesStream: responsesMod.stream,
 		createAssistantMessageEventStream: eventStreamMod.createAssistantMessageEventStream,
 		transcript: await loadTranscriptHelpers(aiDir),
+		classifySystemOne: await loadSystemOneHelper(aiDir),
 	};
+}
+
+/**
+ * pi-ai >= 1.2 ships `dist/api/system-one-shared.js` with the transport-
+ * pluggable System One runner used for decisions/classifier models. Older
+ * pi-ai has no such module; classifier registration is skipped in that case,
+ * so a missing module here is expected, not an error.
+ */
+async function loadSystemOneHelper(aiDir: string): Promise<StreamHelpers["classifySystemOne"]> {
+	try {
+		const mod = await import(pathToFileURL(join(aiDir, "dist/api/system-one-shared.js")).href);
+		return typeof mod.classifySystemOne === "function" ? mod.classifySystemOne : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
