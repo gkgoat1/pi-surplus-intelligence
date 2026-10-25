@@ -220,3 +220,15 @@ test("a 402 from the rail surfaces as an error result, not a throw", async () =>
 	assert.equal(result.stopReason, "error");
 	assert.match(result.errorMessage ?? "", /402/);
 });
+
+test("the transport satisfies pi-ai 1.4's contract: detectCompat with TypeSafe-native defaults", async () => {
+	const capture: { transport?: any } = {};
+	const spyRunner: ClassifySystemOne = async (transport, model, context, options) => {
+		capture.transport = transport;
+		return { api: DECISIONS_API, provider: "surplus-intelligence", model: model.id, answers: {}, stopReason: "stop", timestamp: Date.now() };
+	};
+	const classifier = createDecisionsClassifier(spyRunner);
+	await classifier.classify(MODEL, CONTEXT, { apiKey: "real-key" });
+	assert.equal(typeof capture.transport.detectCompat, "function", "pi-ai 1.4 calls detectCompat for image requests");
+	assert.deepEqual(capture.transport.detectCompat(MODEL), { imageInput: "assets", sendImageOptInHeader: true });
+});

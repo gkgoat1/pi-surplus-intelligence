@@ -130,6 +130,12 @@ export function createDecisionsClassifier(
 			}
 			return body as Record<string, unknown>;
 		},
+		// pi-ai >= 1.4 requires detectCompat for image-capable classifiers.
+		// Surplus serves TypeSafe's native rail, so images use the `assets`
+		// envelope with the danger-zone opt-in header (the catalog marks image
+		// input experimental; registered models stay text-only until that is
+		// confirmed against the live rail).
+		detectCompat: () => ({ imageInput: "assets", sendImageOptInHeader: true }),
 	};
 	return {
 		classify(model, context, options) {

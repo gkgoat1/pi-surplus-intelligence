@@ -36,15 +36,34 @@ export type TranscriptHelpers = {
 };
 
 /**
- * pi-ai >= 1.3's transport-pluggable System One runner
+ * pi-ai >= 1.2's transport-pluggable System One runner
  * (`dist/api/system-one-shared.js`). The extension supplies the transport
  * (URL, envelope) for the gateway's decisions rail; the runner owns the wire
  * question mapping (`bool` → `noul`), auth, retries, and answer parsing.
  */
-/** System One request body without the transport-specific envelope. */
+/** A System One image asset: base64 file bytes, referenced by name from the state. */
+export type SystemOneImageAsset = {
+	type: "image";
+	format: "png" | "jpeg";
+	data_base64: string;
+};
+
+/**
+ * System One request body without the transport-specific envelope. With
+ * images, `state` becomes a list of asset names or image parts followed by
+ * the state (pi-ai 1.4's SystemOneCompat image modes).
+ */
 export type SystemOneWireRequest = {
-	state: ClassifierContext["state"];
+	state: unknown;
 	questions: Record<string, unknown>;
+	assets?: Record<string, SystemOneImageAsset>;
+	images?: string[];
+};
+
+/** System One compatibility settings with every field resolved (pi-ai 1.4). */
+export type ResolvedSystemOneCompat = {
+	imageInput: "assets" | "images" | "state-image-urls";
+	sendImageOptInHeader: boolean;
 };
 
 export type SystemOneTransport = {
@@ -53,6 +72,8 @@ export type SystemOneTransport = {
 	url(model: ClassifierModel<ClassifierApi>): URL;
 	payload(model: ClassifierModel<ClassifierApi>, request: SystemOneWireRequest): Record<string, unknown>;
 	output(body: unknown): Record<string, unknown>;
+	/** Compatibility settings for models that do not set them in `compat` (required by pi-ai >= 1.4). */
+	detectCompat(model: ClassifierModel<ClassifierApi>): ResolvedSystemOneCompat;
 };
 
 export type ClassifySystemOne = (
@@ -69,6 +90,6 @@ export type StreamHelpers = {
 	createAssistantMessageEventStream: CreateAssistantMessageEventStream;
 	/** Present only when the resolved pi-ai exports normalized-transcript helpers. */
 	transcript?: TranscriptHelpers;
-	/** Present only when the resolved pi-ai (>= 1.3) ships the System One runner. */
+	/** Present only when the resolved pi-ai (>= 1.2) ships the System One runner. */
 	classifySystemOne?: ClassifySystemOne;
 };

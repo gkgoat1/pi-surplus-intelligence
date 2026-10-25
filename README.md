@@ -249,12 +249,15 @@ can detect, wrap, and reconfigure without stacking payment loops. See
 ## Pi version compatibility
 
 This extension supports Pi >= 0.84.0. Its types and tests run against Pi
-1.3.0 (`@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai` are
+1.4.0 (`@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai` are
 devDependencies for this purpose), and it is smoke-tested live against the
-Pi 1.2.0 CLI. Pi 1.x normalized provider contexts to `TranscriptContext` and
-types custom `streamSimple` handlers against it; the extension's handlers
-accept that shape structurally, so no code change was needed. It is verified
-through Pi 1.3.0,
+Pi 1.2.0 and 1.4.0 CLIs. Pi 1.x normalized provider contexts to
+`TranscriptContext` and types custom `streamSimple` handlers against it; the
+extension's handlers accept that shape structurally, so no code change was
+needed. Pi 1.4 made `detectCompat` a required part of the System One
+transport contract (image-input modes for classifiers); the decisions
+transport implements it with TypeSafe-native defaults. The extension is
+verified through Pi 1.4.0,
 including Pi >= 0.86's normalized `TranscriptContext` for custom providers
 (system prompt and tool declarations folded into `role: "system"` transcript
 entries instead of `Context.systemPrompt` / `Context.tools`). The GPT-5+ Responses
