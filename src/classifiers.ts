@@ -76,6 +76,7 @@ export function mapClassifierModel(entry: unknown, descriptor: ProviderDescripto
 		},
 		contextWindow: contextWindowOf(record),
 		provider: descriptor.id,
+		baseUrl: descriptor.baseUrl,
 	};
 }
 
@@ -91,6 +92,7 @@ export function classifierFallbackModels(descriptor: ProviderDescriptor): any[] 
 			cost: { input: 0.042, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: 65_536,
 			provider: descriptor.id,
+			baseUrl: descriptor.baseUrl,
 		},
 		{
 			id: "jev-1.13",
@@ -101,6 +103,7 @@ export function classifierFallbackModels(descriptor: ProviderDescriptor): any[] 
 			cost: { input: 0.042, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: 32_768,
 			provider: descriptor.id,
+			baseUrl: descriptor.baseUrl,
 		},
 	];
 }

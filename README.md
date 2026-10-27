@@ -210,6 +210,36 @@ conflicts with other extensions calling `pi.setModel` or executing separate
 agents. In interactive Pi, the footer identifies the preferred upstream or its
 cooldown state. The status is not emitted in print, JSON, or RPC modes.
 
+## Using the providers outside Pi (pi-durable, pi-ai consumers)
+
+The same providers are available without the extension surface through the
+`./providers` entrypoint — plain pi-ai `Provider` objects for pi-durable's
+`models.setProvider(...)`, a standalone `Models` registry, or direct
+`streamSimple` calls:
+
+```ts
+import { createModels } from "@earendil-works/pi-ai/models";
+import { createGatewayProviders } from "pi-surplus-intelligence-extension/providers";
+
+const models = createModels();
+for (const provider of await createGatewayProviders()) {
+  models.setProvider(provider);
+}
+
+// With x402 wallet payments:
+await createGatewayProviders({
+  payments: { wallet: process.env.X402_WALLET_KEY!, maxPerDayUsdc: 5 },
+});
+```
+
+Everything carries over: live catalog discovery with fallbacks, savings
+routing, the Responses-API path for GPT-5+ models, Jev classifier models on
+the Surplus decisions rail, keyless Surp routes, and the x402 payment hook
+when a wallet is passed (as an ethers `Signer` or a `0x` private key).
+Session-scoped extension features — preferred-provider routes, thinking
+compression, fingerprint warnings, the footer status — stay in the
+extension; there is no session lifecycle here. Requires pi-ai >= 1.2.
+
 ## Payments (x402)
 
 Surp and Surplus Intelligence answer paid requests with `402 Payment

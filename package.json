@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Pi extension adding Surplus Intelligence, InferHub, and Cheaper Inference model providers",
   "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./providers": "./providers.ts"
+  },
   "keywords": [
     "pi-package",
     "surplus-intelligence",
@@ -22,6 +26,11 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.84.0",
     "@earendil-works/pi-coding-agent": ">=0.84.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^1.4.0",

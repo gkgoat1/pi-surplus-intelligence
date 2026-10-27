@@ -470,13 +470,26 @@ function ruvicodeFallbackModels(descriptor: ProviderDescriptor): any[] {
 	];
 }
 
+/**
+ * Stamp the provider identity onto a model: `provider` and `baseUrl`. Pi's
+ * registration layer sets both for extension-registered providers, but direct
+ * pi-ai consumers (the `./providers` entrypoint) need them on the model
+ * itself — pi-ai's detectCompat reads `model.baseUrl` and crashes without it.
+ * Identical values in both paths.
+ */
+export function withProvider(model: any, descriptor: ProviderDescriptor): any {
+	return { ...model, provider: descriptor.id, baseUrl: descriptor.baseUrl };
+}
+
 export function fallbackModels(descriptor: ProviderDescriptor): any[] {
-	if (descriptor.catalog === "inferhub") return inferhubFallbackModels(descriptor);
-	if (descriptor.catalog === "cheaper-inference") return cheaperInferenceFallbackModels(descriptor);
-	if (descriptor.catalog === "surp") return surpFallbackModels(descriptor);
-	if (descriptor.catalog === "bu0y") return bu0yFallbackModels(descriptor);
-	if (descriptor.catalog === "ruvicode") return ruvicodeFallbackModels(descriptor);
-	return surplusFallbackModels(descriptor);
+	let models: any[];
+	if (descriptor.catalog === "inferhub") models = inferhubFallbackModels(descriptor);
+	else if (descriptor.catalog === "cheaper-inference") models = cheaperInferenceFallbackModels(descriptor);
+	else if (descriptor.catalog === "surp") models = surpFallbackModels(descriptor);
+	else if (descriptor.catalog === "bu0y") models = bu0yFallbackModels(descriptor);
+	else if (descriptor.catalog === "ruvicode") models = ruvicodeFallbackModels(descriptor);
+	else models = surplusFallbackModels(descriptor);
+	return models.map((model) => withProvider(model, descriptor));
 }
 
 /** Clone Claude models for Pi's native Anthropic Messages adapter. */
@@ -518,7 +531,10 @@ export async function fetchCatalogEntries(descriptor: ProviderDescriptor, apiKey
 
 export async function fetchModels(descriptor: ProviderDescriptor, apiKey?: string): Promise<any[]> {
 	const entries = await fetchCatalogEntries(descriptor, apiKey);
-	const models = entries.map((m) => mapGatewayModel(m, descriptor)).filter((m): m is any => m !== undefined);
+	const models = entries
+		.map((m) => mapGatewayModel(m, descriptor))
+		.filter((m): m is any => m !== undefined)
+		.map((m) => withProvider(m, descriptor));
 	if (models.length === 0) {
 		throw new Error(`${descriptor.name} /v1/models returned no models`);
 	}
