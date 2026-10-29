@@ -26,12 +26,25 @@ export type ProvidersFileConfig = Record<string, ProviderFileConfig>;
 export type PaymentsFileConfig = {
 	/** Wallet key as a literal, `$VAR` template, or `!command`. */
 	privateKey?: string;
+	/** A smart contract wallet paying via ERC-1271; `ownerKey` must be a valid
+	 *  signer for the wallet (same config-value syntax as `privateKey`). */
+	smartWallet?: SmartWalletFileConfig;
 	maxPerRequestUsdc?: number;
 	maxPerDayUsdc?: number;
 	/** Replaces the default probe-seeded allowlist entirely when present. */
 	allowedHosts?: string[];
 	/** Autofund policy (x402 wallet top-ups via swaps; see funding/). */
 	funding?: FundingFileConfig;
+};
+
+/** The `payments.wallet.smartWallet` section. */
+export type SmartWalletFileConfig = {
+	/** The wallet contract address. */
+	address: string;
+	/** Owner/signer key (literal, `$VAR` template, or `!command`). */
+	ownerKey: string;
+	/** Chain the wallet lives on; defaults to Base (8453). */
+	chainId?: number;
 };
 
 /** The `payments.funding` section: when and how to autofund the x402 wallet. */
@@ -65,7 +78,8 @@ const FUNDING_KNOWN_FIELDS = new Set([
 	"routeOrder",
 	"rpcUrls",
 ]);
-const WALLET_KNOWN_FIELDS = new Set(["privateKey"]);
+const WALLET_KNOWN_FIELDS = new Set(["privateKey", "smartWallet"]);
+const SMART_WALLET_KNOWN_FIELDS = new Set(["address", "ownerKey", "chainId"]);
 
 /**
  * Parse the `payments` section of the raw config object. Malformed content
@@ -106,6 +120,35 @@ export function parsePaymentsSection(parsed: Record<string, unknown>): {
 				diagnostics.push(`${prefix}.wallet.privateKey must be a string; ignored.`);
 			} else {
 				config.privateKey = walletSection.privateKey as string | undefined;
+			}
+			if (walletSection.smartWallet !== undefined) {
+				const smartWallet = walletSection.smartWallet;
+				if (typeof smartWallet !== "object" || smartWallet === null || Array.isArray(smartWallet)) {
+					diagnostics.push(`${prefix}.wallet.smartWallet must be an object; ignored.`);
+				} else {
+					const smart = smartWallet as Record<string, unknown>;
+					for (const field of Object.keys(smart)) {
+						if (!SMART_WALLET_KNOWN_FIELDS.has(field)) {
+							diagnostics.push(`${prefix}.wallet.smartWallet.${field} is not a known field; ignored.`);
+						}
+					}
+					if (
+						typeof smart.address === "string" &&
+						/^0x[0-9a-fA-F]{40}$/.test(smart.address) &&
+						typeof smart.ownerKey === "string" &&
+						smart.ownerKey.length > 0 &&
+						(smart.chainId === undefined ||
+							(typeof smart.chainId === "number" && Number.isInteger(smart.chainId) && smart.chainId > 0))
+					) {
+						config.smartWallet = {
+							address: smart.address,
+							ownerKey: smart.ownerKey,
+							...(smart.chainId !== undefined ? { chainId: smart.chainId as number } : {}),
+						};
+					} else {
+						diagnostics.push(`${prefix}.wallet.smartWallet requires a valid address and ownerKey; ignored.`);
+					}
+				}
 			}
 		}
 	}

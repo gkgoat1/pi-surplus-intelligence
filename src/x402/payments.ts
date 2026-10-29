@@ -20,7 +20,8 @@ import { autofund } from "./funding/autofund.ts";
 import { resolveFunding } from "./funding/config.ts";
 import { ethersDriver } from "./funding/ethers-driver.ts";
 import { CHAINS } from "./funding/types.ts";
-import type { FundingFileConfig } from "../provider-config.ts";
+import { SmartWalletSigner } from "./smart-wallet.ts";
+import type { FundingFileConfig, SmartWalletFileConfig } from "../provider-config.ts";
 import type { Signer } from "ethers";
 
 /** Hosts that probed `402 x402` on 2026-10-08 (docs/probe-results.md). */
@@ -48,6 +49,8 @@ export type PaymentsConfig = {
 	maxPerRequestUsdc?: number;
 	maxPerDayUsdc?: number;
 	allowedHosts?: readonly string[];
+	/** A smart contract wallet (ERC-1271); takes precedence over walletPrivateKey. */
+	smartWallet?: SmartWalletFileConfig;
 	/** Autofund policy (x402 wallet top-ups via swaps). */
 	funding?: FundingFileConfig;
 };
@@ -81,11 +84,14 @@ export function configurePayments(
 	} = {},
 ): string | undefined {
 	if (deps.ui && deps.mode) scopes.set(sessionId, { ui: deps.ui, mode: deps.mode });
-	const resolved = resolveWallet(config.walletPrivateKey, deps);
+	const resolved = resolveSmartOrEoaWallet(config, deps);
 	if (!resolved.ok) {
 		sessions.delete(sessionId);
 		// Only surface a diagnostic when the user tried to configure a wallet.
-		return config.walletPrivateKey !== undefined || deps.env?.X402_WALLET_KEY || process.env.X402_WALLET_KEY
+		return config.walletPrivateKey !== undefined ||
+			config.smartWallet !== undefined ||
+			deps.env?.X402_WALLET_KEY ||
+			process.env.X402_WALLET_KEY
 			? `x402 payments disabled: ${resolved.reason}`
 			: undefined;
 	}
@@ -153,6 +159,35 @@ async function runAutofund(
 	} catch {
 		// Funding failures never surface to the session; the wallet stays as-is.
 	}
+}
+
+/** Resolve the session's payment wallet: the configured smart wallet (its
+ *  owner key resolved with the same literal/`$VAR`/`!command` syntax) takes
+ *  precedence over a plain EOA key. */
+function resolveSmartOrEoaWallet(
+	config: PaymentsConfig,
+	deps: {
+		env?: Record<string, string | undefined>;
+		exec?: (command: string) => string;
+	},
+): { ok: true; signer: Signer; address: string } | { ok: false; reason: string } {
+	if (config.smartWallet) {
+		const owner = resolveWallet(config.smartWallet.ownerKey, deps);
+		if (!owner.ok) return { ok: false, reason: `smart wallet owner key: ${owner.reason}` };
+		// The owner signs; the smart wallet is the payment address. Base is
+		// the default chain (the x402 rail).
+		const ownerKey = (owner.signer as { privateKey?: string }).privateKey;
+		if (typeof ownerKey !== "string") {
+			return { ok: false, reason: "smart wallet owner key is not a raw private key" };
+		}
+		const signer = new SmartWalletSigner(
+			config.smartWallet.address,
+			ownerKey,
+			config.smartWallet.chainId ?? 8453,
+		);
+		return { ok: true, signer, address: config.smartWallet.address };
+	}
+	return resolveWallet(config.walletPrivateKey, deps);
 }
 
 export function paymentState(sessionId: string | undefined): PaymentState | undefined {
