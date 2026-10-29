@@ -21,8 +21,9 @@ import { resolveFunding } from "./funding/config.ts";
 import { ethersDriver } from "./funding/ethers-driver.ts";
 import { CHAINS } from "./funding/types.ts";
 import { SmartWalletSigner } from "./smart-wallet.ts";
+import { ecdsaBareScheme, safeMessageScheme, type WalletScheme } from "./wallet-schemes.ts";
 import type { FundingFileConfig, SmartWalletFileConfig } from "../provider-config.ts";
-import type { Signer } from "ethers";
+import { SigningKey, type Signer } from "ethers";
 
 /** Hosts that probed `402 x402` on 2026-10-08 (docs/probe-results.md). */
 export const DEFAULT_ALLOWED_HOSTS: readonly string[] = [
@@ -180,14 +181,27 @@ function resolveSmartOrEoaWallet(
 		if (typeof ownerKey !== "string") {
 			return { ok: false, reason: "smart wallet owner key is not a raw private key" };
 		}
-		const signer = new SmartWalletSigner(
-			config.smartWallet.address,
-			ownerKey,
-			config.smartWallet.chainId ?? 8453,
-		);
+		const chainId = config.smartWallet.chainId ?? 8453;
+		const scheme = schemeFor(config.smartWallet.scheme, ownerKey);
+		if (!scheme) {
+			return { ok: false, reason: `unknown smart wallet scheme ${config.smartWallet.scheme}` };
+		}
+		const signer = new SmartWalletSigner(config.smartWallet.address, ownerKey, chainId, undefined, scheme);
 		return { ok: true, signer, address: config.smartWallet.address };
 	}
 	return resolveWallet(config.walletPrivateKey, deps);
+}
+
+/** Resolve the named scheme; the PQ scheme needs an external signer plug-in
+ *  (not configurable from a file), so it is not selectable here. */
+function schemeFor(
+	name: "safe-message" | "ecdsa-bare" | "slhdsa-raw" | undefined,
+	ownerKey: string,
+): WalletScheme | undefined {
+	if (name === undefined || name === "safe-message") return safeMessageScheme(new SigningKey(ownerKey));
+	if (name === "ecdsa-bare") return ecdsaBareScheme(new SigningKey(ownerKey));
+	// slhdsa-raw needs a caller-provided PQ signer; a raw key cannot produce it.
+	return undefined;
 }
 
 export function paymentState(sessionId: string | undefined): PaymentState | undefined {

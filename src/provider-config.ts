@@ -45,6 +45,9 @@ export type SmartWalletFileConfig = {
 	ownerKey: string;
 	/** Chain the wallet lives on; defaults to Base (8453). */
 	chainId?: number;
+	/** The signature scheme: "safe-message" (Safe), "ecdsa-bare" (wallitify),
+	 *  or "slhdsa-raw" (Cell/sphinc PQ). Defaults to "safe-message". */
+	scheme?: "safe-message" | "ecdsa-bare" | "slhdsa-raw";
 };
 
 /** The `payments.funding` section: when and how to autofund the x402 wallet. */
@@ -79,7 +82,7 @@ const FUNDING_KNOWN_FIELDS = new Set([
 	"rpcUrls",
 ]);
 const WALLET_KNOWN_FIELDS = new Set(["privateKey", "smartWallet"]);
-const SMART_WALLET_KNOWN_FIELDS = new Set(["address", "ownerKey", "chainId"]);
+const SMART_WALLET_KNOWN_FIELDS = new Set(["address", "ownerKey", "chainId", "scheme"]);
 
 /**
  * Parse the `payments` section of the raw config object. Malformed content
@@ -138,12 +141,19 @@ export function parsePaymentsSection(parsed: Record<string, unknown>): {
 						typeof smart.ownerKey === "string" &&
 						smart.ownerKey.length > 0 &&
 						(smart.chainId === undefined ||
-							(typeof smart.chainId === "number" && Number.isInteger(smart.chainId) && smart.chainId > 0))
+							(typeof smart.chainId === "number" && Number.isInteger(smart.chainId) && smart.chainId > 0)) &&
+						(smart.scheme === undefined ||
+							smart.scheme === "safe-message" ||
+							smart.scheme === "ecdsa-bare" ||
+							smart.scheme === "slhdsa-raw")
 					) {
 						config.smartWallet = {
 							address: smart.address,
 							ownerKey: smart.ownerKey,
 							...(smart.chainId !== undefined ? { chainId: smart.chainId as number } : {}),
+							...(smart.scheme !== undefined
+								? { scheme: smart.scheme as "safe-message" | "ecdsa-bare" | "slhdsa-raw" }
+								: {}),
 						};
 					} else {
 						diagnostics.push(`${prefix}.wallet.smartWallet requires a valid address and ownerKey; ignored.`);

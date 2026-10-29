@@ -38,6 +38,7 @@ import {
 	type TypedDataDomain,
 	type TypedDataField,
 } from "ethers";
+import { safeMessageScheme, type WalletScheme } from "./wallet-schemes.ts";
 
 /** EIP-712 type for Safe's SafeMessage(bytes message). */
 export const SAFE_MESSAGE_TYPES: Record<string, TypedDataField[]> = {
@@ -81,13 +82,16 @@ export class SmartWalletSigner extends AbstractSigner {
 	readonly ownerKey: SigningKey;
 	readonly ownerAddress: string;
 	readonly chainId: number;
+	/** The pluggable signature scheme; defaults to the SafeMessage wrap. */
+	readonly scheme: WalletScheme;
 
-	constructor(walletAddress: string, ownerPrivateKey: string, chainId: number, provider?: Provider) {
+	constructor(walletAddress: string, ownerPrivateKey: string, chainId: number, provider?: Provider, scheme?: WalletScheme) {
 		super(provider);
 		this.walletAddress = getAddress(walletAddress);
 		this.ownerKey = new SigningKey(ownerPrivateKey);
 		this.ownerAddress = computeAddress(this.ownerKey.publicKey);
 		this.chainId = chainId;
+		this.scheme = scheme ?? safeMessageScheme(this.ownerKey);
 	}
 
 	override async getAddress(): Promise<string> {
@@ -108,8 +112,9 @@ export class SmartWalletSigner extends AbstractSigner {
 	}
 
 	/**
-	 * Sign typed data as the smart wallet: the returned signature validates
-	 * under the wallet's ERC-1271 `isValidSignature` for the EIP-712 digest.
+	 * Sign typed data as the smart wallet: the scheme turns the EIP-712
+	 * digest into the signature the wallet's ERC-1271 `isValidSignature`
+	 * accepts.
 	 */
 	override async signTypedData(
 		domain: TypedDataDomain,
@@ -117,10 +122,10 @@ export class SmartWalletSigner extends AbstractSigner {
 		value: Record<string, unknown>,
 	): Promise<string> {
 		const digest = TypedDataEncoder.hash(domain, types, value);
-		return ecdsaSerialized(this.ownerKey, this.safeMessageHash(digest));
+		return this.scheme.sign(digest, { wallet: this.walletAddress, chainId: this.chainId });
 	}
 
-	/** Personal-message signing as the smart wallet (same ERC-1271 wrap). */
+	/** Personal-message signing as the smart wallet (same scheme). */
 	override async signMessage(message: string | Uint8Array): Promise<string> {
 		const bytes =
 			typeof message === "string"
@@ -129,7 +134,7 @@ export class SmartWalletSigner extends AbstractSigner {
 					: hexlify(toUtf8(message))
 				: hexlify(message);
 		const digest = messageDigest(bytes);
-		return ecdsaSerialized(this.ownerKey, this.safeMessageHash(digest));
+		return this.scheme.sign(digest, { wallet: this.walletAddress, chainId: this.chainId });
 	}
 
 	override async signTransaction(): Promise<string> {
