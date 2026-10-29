@@ -30,9 +30,41 @@ export type PaymentsFileConfig = {
 	maxPerDayUsdc?: number;
 	/** Replaces the default probe-seeded allowlist entirely when present. */
 	allowedHosts?: string[];
+	/** Autofund policy (x402 wallet top-ups via swaps; see funding/). */
+	funding?: FundingFileConfig;
 };
 
-const PAYMENTS_KNOWN_FIELDS = new Set(["wallet", "maxPerRequestUsdc", "maxPerDayUsdc", "allowedHosts"]);
+/** The `payments.funding` section: when and how to autofund the x402 wallet. */
+export type FundingFileConfig = {
+	/** Master switch; absent/false disables autofunding. */
+	enabled?: boolean;
+	/** Fund when Base USDC drops below this (dollars). */
+	minUsdc?: number;
+	/** Fund up to this Base USDC (dollars). */
+	targetUsdc?: number;
+	/** ETH per swap batch. */
+	batchEth?: number;
+	/** Max swap batches per route. */
+	maxBatches?: number;
+	/** Slippage margin for swap quotes (basis points). */
+	slippageBps?: number;
+	/** Route attempt order; default ["base", "mainnet"]. */
+	routeOrder?: ("base" | "mainnet")[];
+	/** RPC endpoints per chain (`$VAR` templates allowed). */
+	rpcUrls?: { base?: string; mainnet?: string };
+};
+
+const PAYMENTS_KNOWN_FIELDS = new Set(["wallet", "maxPerRequestUsdc", "maxPerDayUsdc", "allowedHosts", "funding"]);
+const FUNDING_KNOWN_FIELDS = new Set([
+	"enabled",
+	"minUsdc",
+	"targetUsdc",
+	"batchEth",
+	"maxBatches",
+	"slippageBps",
+	"routeOrder",
+	"rpcUrls",
+]);
 const WALLET_KNOWN_FIELDS = new Set(["privateKey"]);
 
 /**
@@ -94,7 +126,84 @@ export function parsePaymentsSection(parsed: Record<string, unknown>): {
 			config.allowedHosts = hosts as string[];
 		}
 	}
+	if (section.funding !== undefined) {
+		const funding = section.funding;
+		if (typeof funding !== "object" || funding === null || Array.isArray(funding)) {
+			diagnostics.push(`${prefix}.funding must be an object; ignored.`);
+		} else {
+			const parsed = parseFundingSection(funding as Record<string, unknown>, `${prefix}.funding`);
+			diagnostics.push(...parsed.diagnostics);
+			if (parsed.funding) config.funding = parsed.funding;
+		}
+	}
 	return { payments: config, diagnostics };
+}
+
+/** Parse `payments.funding` fail-closed: malformed fields warn and drop. */
+function parseFundingSection(section: Record<string, unknown>, prefix: string): {
+	funding?: FundingFileConfig;
+	diagnostics: string[];
+} {
+	const diagnostics: string[] = [];
+	for (const field of Object.keys(section)) {
+		if (!FUNDING_KNOWN_FIELDS.has(field)) {
+			diagnostics.push(`${prefix}.${field} is not a known field; ignored.`);
+		}
+	}
+	const funding: FundingFileConfig = {};
+	if (section.enabled !== undefined) {
+		if (typeof section.enabled === "boolean") funding.enabled = section.enabled;
+		else diagnostics.push(`${prefix}.enabled must be a boolean; ignored.`);
+	}
+	for (const field of ["minUsdc", "targetUsdc", "batchEth", "slippageBps"] as const) {
+		const value = section[field];
+		if (value === undefined) continue;
+		if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+			diagnostics.push(`${prefix}.${field} must be a positive number; ignored.`);
+		} else {
+			funding[field] = value;
+		}
+	}
+	if (section.maxBatches !== undefined) {
+		const value = section.maxBatches;
+		if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 64) {
+			funding.maxBatches = value;
+		} else {
+			diagnostics.push(`${prefix}.maxBatches must be an integer 1-64; ignored.`);
+		}
+	}
+	if (section.routeOrder !== undefined) {
+		const order = section.routeOrder;
+		if (
+			Array.isArray(order) &&
+			order.length > 0 &&
+			order.every((route) => route === "base" || route === "mainnet") &&
+			new Set(order).size === order.length
+		) {
+			funding.routeOrder = order as ("base" | "mainnet")[];
+		} else {
+			diagnostics.push(`${prefix}.routeOrder must be a deduped non-empty array of "base"/"mainnet"; ignored.`);
+		}
+	}
+	if (section.rpcUrls !== undefined) {
+		const urls = section.rpcUrls;
+		if (typeof urls !== "object" || urls === null || Array.isArray(urls)) {
+			diagnostics.push(`${prefix}.rpcUrls must be an object; ignored.`);
+		} else {
+			const parsedUrls: { base?: string; mainnet?: string } = {};
+			for (const chain of ["base", "mainnet"] as const) {
+				const value = (urls as Record<string, unknown>)[chain];
+				if (value === undefined) continue;
+				if (typeof value !== "string" || !/^https?:\/\//.test(value)) {
+					diagnostics.push(`${prefix}.rpcUrls.${chain} must be an http(s) URL; ignored.`);
+				} else {
+					parsedUrls[chain] = value;
+				}
+			}
+			funding.rpcUrls = parsedUrls;
+		}
+	}
+	return { funding, diagnostics };
 }
 
 export type ResolvedCredentials =

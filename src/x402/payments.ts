@@ -11,10 +11,16 @@
  * nothing about provider requests changes.
  */
 import { join } from "node:path";
+import { JsonRpcProvider } from "ethers";
 import { createPayingFetch, installPayingFetch, uninstallPayingFetch } from "./hook.ts";
 import { fileLedger, NULL_LEDGER, type Ledger } from "./ledger.ts";
 import type { DailySpend } from "./pay.ts";
 import { resolveWallet } from "./wallet.ts";
+import { autofund } from "./funding/autofund.ts";
+import { resolveFunding } from "./funding/config.ts";
+import { ethersDriver } from "./funding/ethers-driver.ts";
+import { CHAINS } from "./funding/types.ts";
+import type { FundingFileConfig } from "../provider-config.ts";
 import type { Signer } from "ethers";
 
 /** Hosts that probed `402 x402` on 2026-10-08 (docs/probe-results.md). */
@@ -42,6 +48,8 @@ export type PaymentsConfig = {
 	maxPerRequestUsdc?: number;
 	maxPerDayUsdc?: number;
 	allowedHosts?: readonly string[];
+	/** Autofund policy (x402 wallet top-ups via swaps). */
+	funding?: FundingFileConfig;
 };
 
 const sessions = new Map<string, PaymentState>();
@@ -109,7 +117,42 @@ export function configurePayments(
 		dailySpend,
 		ledger,
 	});
+	// Autofund: check + top up the wallet in the background (never blocks
+	// session start; failures land in the ledger as observed events).
+	const funding = resolveFunding(config.funding);
+	if (funding) {
+		void runAutofund(resolved.signer, resolved.address, funding, ledger);
+	}
 	return undefined;
+}
+
+/** Build per-chain drivers from the funding wallet and run one autofund pass. */
+async function runAutofund(
+	signer: Signer,
+	address: string,
+	funding: NonNullable<ReturnType<typeof resolveFunding>>,
+	ledger: Ledger,
+): Promise<void> {
+	const drivers: Partial<Record<"base" | "mainnet", ReturnType<typeof ethersDriver>>> = {};
+	for (const chain of ["base", "mainnet"] as const) {
+		const rpcUrl = funding.rpcUrls[chain];
+		if (!rpcUrl) continue;
+		const provider = new JsonRpcProvider(rpcUrl, CHAINS[chain].chainId);
+		drivers[chain] = ethersDriver(signer, provider, CHAINS[chain].chainId, address);
+	}
+	try {
+		const report = await autofund({ targetAddress: address, drivers, config: funding.config });
+		if (report.needed) {
+			ledger.record({
+				host: "autofund",
+				path: "",
+				outcome: "observed",
+				usdc: Number(report.targetBalanceAfter - report.targetBalanceBefore) / 1_000_000,
+			});
+		}
+	} catch {
+		// Funding failures never surface to the session; the wallet stays as-is.
+	}
 }
 
 export function paymentState(sessionId: string | undefined): PaymentState | undefined {

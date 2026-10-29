@@ -204,6 +204,7 @@ export default async function (pi: ExtensionAPI) {
 				maxPerRequestUsdc: paymentsFileConfig?.maxPerRequestUsdc,
 				maxPerDayUsdc: paymentsFileConfig?.maxPerDayUsdc,
 				allowedHosts: paymentsFileConfig?.allowedHosts,
+				funding: paymentsFileConfig?.funding,
 			},
 			{ cwd: ctx.cwd, ui: ctx.ui, mode: ctx.mode },
 		);
