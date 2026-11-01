@@ -2,8 +2,8 @@
  * Settle one live x402 payment against Surp. Manual use only — never wired
  * into the test suite.
  *
- *   X402_TEST_KEY=0x… npx tsx scripts/settle-surp.ts           # one paid call
- *   X402_TEST_KEY=0x… npx tsx scripts/settle-surp.ts --check   # print address, send nothing
+ *   X402_TEST_KEY=0x… node scripts/settle-surp.ts           # one paid call
+ *   X402_TEST_KEY=0x… node scripts/settle-surp.ts --check   # print address, send nothing
  *
  * The wallet key comes from the environment (or swap the resolution below for
  * a `!command`-style keychain read). It is never written to disk or logged.

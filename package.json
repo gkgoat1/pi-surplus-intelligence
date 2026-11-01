@@ -20,7 +20,7 @@
     ]
   },
   "scripts": {
-    "test": "tsx --test test/**/*.test.ts",
+    "test": "node --test 'test/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
@@ -36,7 +36,6 @@
     "@earendil-works/pi-ai": "^1.4.0",
     "@earendil-works/pi-coding-agent": "^1.4.0",
     "@types/node": "^22.13.5",
-    "tsx": "^4.23.13",
     "typescript": "^5.9.3"
   },
   "license": "MIT",

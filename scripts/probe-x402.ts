@@ -11,7 +11,7 @@
  * The probe never carries credentials: no wallet, no API key, no auth header.
  * It samples the chat-completions path only. Run it live with:
  *
- *   npx tsx scripts/probe-x402.ts [baseUrl ...]
+ *   node scripts/probe-x402.ts [baseUrl ...]
  */
 
 export type ProbeClassification =
@@ -113,16 +113,36 @@ const DEFAULT_HOSTS: { name: string; chatCompletionsUrl: string; model: string }
 
 const PROBE_TIMEOUT_MS = 15_000;
 
+/** Known probe targets; CLI-supplied hosts join this set explicitly (operator intent). */
+const ALLOWED_PROBE_HOSTS = new Set(
+	DEFAULT_HOSTS.map((host) => new URL(host.chatCompletionsUrl).hostname),
+);
+
+/**
+ * SSRF guard: a probe URL is fetchable only when it parses as https and its
+ * hostname is allowlisted (built-in defaults or an explicit CLI argument).
+ * Returns the normalized href, or undefined when refused.
+ */
+function validatedProbeUrl(raw: string): string | undefined {
+	try {
+		const url = new URL(raw);
+		if (url.protocol !== "https:") return undefined;
+		if (!ALLOWED_PROBE_HOSTS.has(url.hostname)) return undefined;
+		return url.href;
+	} catch {
+		return undefined;
+	}
+}
+
 async function probeOne(host: { name: string; chatCompletionsUrl: string; model: string }): Promise<ProbeResult> {
-	// SSRF guard: the probe only ever POSTs to http(s) URLs. CLI-supplied URLs
-	// are validated in main(); the defaults above are compile-time constants.
-	if (!/^https:\/\//.test(host.chatCompletionsUrl)) {
-		return { classification: "other", note: "refused: not an https URL" };
+	const url = validatedProbeUrl(host.chatCompletionsUrl);
+	if (!url) {
+		return { classification: "other", note: "refused: not an allowlisted https URL" };
 	}
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
 	try {
-		const response = await fetch(host.chatCompletionsUrl, {
+		const response = await fetch(url, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
@@ -149,6 +169,9 @@ async function main(): Promise<void> {
 		try {
 			const parsed = new URL(url);
 			if (parsed.protocol !== "https:") throw new Error("https URLs only");
+			// An explicit CLI argument is operator approval: allowlist the host
+			// before it reaches the fetch path.
+			ALLOWED_PROBE_HOSTS.add(parsed.hostname);
 			extraHosts.push({
 				name: parsed.hostname,
 				chatCompletionsUrl: `${url.replace(/\/$/, "")}/chat/completions`,
