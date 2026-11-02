@@ -18,7 +18,93 @@ export type ProviderFileConfig = {
 	apiKey?: string;
 	/** Set to false to keep the provider from being registered at all. */
 	enabled?: boolean;
+	/** Per-provider retry overrides, merged over the top-level `retry`. */
+	retry?: RetryFileConfig;
 };
+
+/**
+ * One retry budget as written in config. `maxAttempts` is a positive integer
+ * or `Infinity` (from the string `"infinite"`); omitted fields inherit the
+ * defaults in src/retry.ts.
+ */
+export type RetryFileSettings = {
+	maxAttempts?: number;
+	baseDelayMs?: number;
+	maxDelayMs?: number;
+};
+
+/** The `retry` section: separate budgets for catalog discovery and requests. */
+export type RetryFileConfig = {
+	/** Retries for unreachable `/v1/models` catalog endpoints at startup. */
+	discovery?: RetryFileSettings;
+	/**
+	 * Retries for failed model requests (pre-output failures only; partial
+	 * output is never replayed). `"maxAttempts": "infinite"` keeps Pi from
+	 * ever falling back to another provider on transient failures.
+	 */
+	requests?: RetryFileSettings;
+};
+
+const RETRY_SETTINGS_KNOWN_FIELDS = new Set(["maxAttempts", "baseDelayMs", "maxDelayMs"]);
+const RETRY_KNOWN_FIELDS = new Set(["discovery", "requests"]);
+
+function parseRetrySettings(value: unknown, path: string, diagnostics: string[]): RetryFileSettings | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		diagnostics.push(`${path} must be an object; ignored.`);
+		return undefined;
+	}
+	const section = value as Record<string, unknown>;
+	for (const field of Object.keys(section)) {
+		if (!RETRY_SETTINGS_KNOWN_FIELDS.has(field)) {
+			diagnostics.push(`${path}.${field} is not a known field; ignored.`);
+		}
+	}
+	const settings: RetryFileSettings = {};
+	const maxAttempts = section.maxAttempts;
+	if (maxAttempts !== undefined) {
+		if (maxAttempts === "infinite") {
+			settings.maxAttempts = Infinity;
+		} else if (typeof maxAttempts === "number" && Number.isInteger(maxAttempts) && maxAttempts >= 1) {
+			settings.maxAttempts = maxAttempts;
+		} else {
+			diagnostics.push(`${path}.maxAttempts must be a positive integer or "infinite"; ignored.`);
+		}
+	}
+	for (const field of ["baseDelayMs", "maxDelayMs"] as const) {
+		const fieldValue = section[field];
+		if (fieldValue === undefined) continue;
+		if (typeof fieldValue !== "number" || !Number.isFinite(fieldValue) || fieldValue <= 0) {
+			diagnostics.push(`${path}.${field} must be a positive number; ignored.`);
+		} else {
+			settings[field] = fieldValue;
+		}
+	}
+	return settings;
+}
+
+/** Parse a `retry` section fail-soft: malformed fields warn and drop. */
+export function parseRetrySection(
+	value: unknown,
+	path: string,
+	diagnostics: string[],
+): RetryFileConfig | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		diagnostics.push(`${path} must be an object; ignored.`);
+		return undefined;
+	}
+	const section = value as Record<string, unknown>;
+	for (const field of Object.keys(section)) {
+		if (!RETRY_KNOWN_FIELDS.has(field)) {
+			diagnostics.push(`${path}.${field} is not a known field; ignored.`);
+		}
+	}
+	const config: RetryFileConfig = {};
+	for (const field of ["discovery", "requests"] as const) {
+		if (section[field] === undefined) continue;
+		config[field] = parseRetrySettings(section[field], `${path}.${field}`, diagnostics);
+	}
+	return config;
+}
 
 export type ProvidersFileConfig = Record<string, ProviderFileConfig>;
 
@@ -390,7 +476,7 @@ export function resolveProviderCredentials(
 	};
 }
 
-function parseProviderEntry(value: unknown, path: string): ProviderFileConfig {
+function parseProviderEntry(value: unknown, path: string, diagnostics: string[]): ProviderFileConfig {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		throw new Error(`"${path}" must be an object`);
 	}
@@ -401,7 +487,11 @@ function parseProviderEntry(value: unknown, path: string): ProviderFileConfig {
 	if (entry.enabled !== undefined && typeof entry.enabled !== "boolean") {
 		throw new Error(`"${path}.enabled" must be a boolean`);
 	}
-	return { apiKey: entry.apiKey, enabled: entry.enabled };
+	const parsed: ProviderFileConfig = { apiKey: entry.apiKey, enabled: entry.enabled };
+	if (entry.retry !== undefined) {
+		parsed.retry = parseRetrySection(entry.retry, `"${path}.retry"`, diagnostics);
+	}
+	return parsed;
 }
 
 /**
@@ -441,6 +531,7 @@ export function loadPaymentsFileConfig(cwd: string): {
  */
 export function loadProvidersFileConfig(cwd: string): {
 	providers: ProvidersFileConfig;
+	retry?: RetryFileConfig;
 	diagnostics: string[];
 } {
 	const path = join(cwd, ...CONFIG_PATH);
@@ -469,28 +560,34 @@ export function loadProvidersFileConfig(cwd: string): {
 		};
 	}
 
-	const rawProviders = (parsed as Record<string, unknown>).providers;
-	if (rawProviders === undefined) return { providers: {}, diagnostics: [] };
+	const topLevel = parsed as Record<string, unknown>;
+	const diagnostics: string[] = [];
+	const retry =
+		topLevel.retry === undefined
+			? undefined
+			: parseRetrySection(topLevel.retry, `"retry" in ${CONFIG_PATH.join("/")}`, diagnostics);
+	const rawProviders = topLevel.providers;
+	if (rawProviders === undefined) return { providers: {}, retry, diagnostics };
 	try {
 		if (typeof rawProviders !== "object" || rawProviders === null || Array.isArray(rawProviders)) {
 			throw new Error('"providers" must be an object');
 		}
 		const providers: ProvidersFileConfig = {};
-		const diagnostics: string[] = [];
 		for (const [id, entry] of Object.entries(rawProviders)) {
-			providers[id] = parseProviderEntry(entry, `providers.${id}`);
+			providers[id] = parseProviderEntry(entry, `providers.${id}`, diagnostics);
 			if (!PROVIDER_BY_ID.has(id)) {
 				diagnostics.push(
 					`Unknown provider "${id}" in ${CONFIG_PATH.join("/")}; expected one of: ${PROVIDERS.map((d) => d.id).join(", ")}.`,
 				);
 			}
 		}
-		return { providers, diagnostics };
+		return { providers, retry, diagnostics };
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
 		return {
 			providers: {},
-			diagnostics: [`Invalid ${CONFIG_PATH.join("/")}: ${detail}. Config-file provider keys were ignored.`],
+			retry,
+			diagnostics: [...diagnostics, `Invalid ${CONFIG_PATH.join("/")}: ${detail}. Config-file provider keys were ignored.`],
 		};
 	}
 }

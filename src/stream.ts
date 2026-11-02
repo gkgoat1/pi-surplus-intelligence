@@ -27,18 +27,8 @@ import { clampGatewayThinkingLevel, usesOpenAIResponsesApi } from "./models.ts";
 import { createResponsesToolStream } from "./responses-tools.ts";
 import { claimedUpstreamError, upstreamClaimedErrorMessage } from "./upstream-error.ts";
 import { paymentState } from "./x402/payments.ts";
-
-const MAX_RESPONSE_ATTEMPTS = 15;
-const INITIAL_RETRY_DELAY_MS = 500;
-const MAX_RETRY_DELAY_MS = 60_000;
-
-/**
- * Bu0y reserves the worst-case cost before running a fill, so a replayed
- * request can pay twice for one answer (docs/plans/x402-fetch-hook.md §Bu0y).
- * Cap its pre-output retries at a single retry; other providers keep the
- * generous budget for long-running agents.
- */
-const PREPAID_FILL_MAX_ATTEMPTS = 2;
+import { resolveRequestPolicy, retryDelayMs, waitForRetry, type RetryPolicy } from "./retry.ts";
+import type { RetryFileSettings } from "./provider-config.ts";
 
 /**
  * Placeholder API key for keyless-capable providers. Pi's agent-session gate
@@ -49,10 +39,22 @@ const PREPAID_FILL_MAX_ATTEMPTS = 2;
  */
 export const KEYLESS_SENTINEL = "x402-keyless";
 
+/**
+ * Resolve the pre-output retry budget for a model. Without config this
+ * reproduces the historical behavior (15 attempts; Bu0y's prepaid fills get
+ * a single retry). Configured `retry.requests` settings override it —
+ * including `"maxAttempts": "infinite"`, which keeps transient failures from
+ * ever reaching Pi's provider fallback. See src/retry.ts.
+ */
+function retryPolicyForModel(
+	model: Model<Api>,
+	resolveSettings: RequestRetrySettingsSource | undefined,
+): RetryPolicy {
+	return resolveRequestPolicy(model.provider, resolveSettings?.(model.provider));
+}
+
 function maxAttemptsForModel(model: Model<Api>): number {
-	return PROVIDER_BY_ID.get(model.provider)?.catalog === "bu0y"
-		? PREPAID_FILL_MAX_ATTEMPTS
-		: MAX_RESPONSE_ATTEMPTS;
+	return resolveRequestPolicy(model.provider).maxAttempts;
 }
 
 /**
@@ -72,34 +74,8 @@ function stripAuthorizationFetch(baseFetch: typeof fetch): typeof fetch {
 	};
 }
 
-/**
- * Wait between attempts without keeping an agent alive after Pi has cancelled
- * it. Long-running workflow agents can otherwise race an aborted request's
- * retry timer and appear to hang.
- */
-function waitForRetry(delayMs: number, signal: AbortSignal | undefined): Promise<boolean> {
-	if (signal?.aborted) return Promise.resolve(false);
-	return new Promise((resolve) => {
-		const timer = setTimeout(() => finish(true), delayMs);
-		const onAbort = () => finish(false);
-		function finish(retry: boolean): void {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			resolve(retry);
-		}
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
-}
-
 function abortedRequestError(): Error {
 	return new Error("Request aborted");
-}
-
-function retryDelayMs(attempt: number): number {
-	return Math.min(
-		INITIAL_RETRY_DELAY_MS * 2 ** (attempt - 1),
-		MAX_RETRY_DELAY_MS,
-	);
 }
 
 /**
@@ -161,9 +137,10 @@ async function* retryFailedAssistantResponses(
 	createStream: () => AssistantMessageEventStream,
 	model: Model<Api>,
 	signal: AbortSignal | undefined,
+	policy: RetryPolicy,
 ): AsyncGenerator<any> {
 	let lastFailure: unknown;
-	const maxAttempts = maxAttemptsForModel(model);
+	const maxAttempts = policy.maxAttempts;
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 		const buffered: any[] = [];
 		let forwarded = false;
@@ -225,10 +202,14 @@ async function* retryFailedAssistantResponses(
 		}
 		if (signal?.aborted) throw abortedRequestError();
 		if (!retryableFailure) lastFailure = emptyAssistantResponseError(model);
-		if (attempt === MAX_RESPONSE_ATTEMPTS) {
+		// Thrown (non-event) failures must surface on the LAST configured
+		// attempt, whatever the budget — previously this compared against the
+		// hardcoded 15, so a Bu0y prepaid-fill request (2 attempts) whose final
+		// attempt threw ended the stream without any error event at all.
+		if (attempt === maxAttempts) {
 			throw lastFailure instanceof Error ? lastFailure : new Error(String(lastFailure));
 		}
-		if (!(await waitForRetry(retryDelayMs(attempt), signal))) throw abortedRequestError();
+		if (!(await waitForRetry(retryDelayMs(policy, attempt), signal))) throw abortedRequestError();
 	}
 }
 
@@ -249,8 +230,16 @@ function optionsForUpstream(
 	};
 }
 
+/**
+ * Supplies the merged `retry.requests` settings for a provider id (top-level
+ * `retry.requests` plus any `providers.<id>.retry.requests` override). When
+ * omitted, every provider uses the default budget.
+ */
+export type RequestRetrySettingsSource = (providerId: string) => RetryFileSettings | undefined;
+
 export function createGatewayStreamSimple(
 	helpers: StreamHelpers,
+	resolveRequestRetrySettings?: RequestRetrySettingsSource,
 ): (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream {
 	const { completionsStream, responsesToolStream: responsesToolStreamHelper, createAssistantMessageEventStream, transcript } = helpers;
 	const responsesDirectStream = responsesToolStreamHelper ?? createResponsesToolStream(createAssistantMessageEventStream, transcript);
@@ -352,7 +341,8 @@ export function createGatewayStreamSimple(
 									return params;
 								},
 							});
-				const builtInStream = retryFailedAssistantResponses(createBuiltInStream, model, options?.signal);
+				const retryPolicy = retryPolicyForModel(model, resolveRequestRetrySettings);
+				const builtInStream = retryFailedAssistantResponses(createBuiltInStream, model, options?.signal, retryPolicy);
 
 				// Some Surplus models consume reasoning tokens without exposing the raw
 				// reasoning text. In that case surface the token count as evidence.

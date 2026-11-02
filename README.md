@@ -114,7 +114,54 @@ only for models whose `supported_parameters` include `reasoning` or
 `reasoning_levels`; for Cheaper Inference, from the catalog's `capabilities`.
 Claude models from each catalog also appear under the matching `*-anthropic`
 provider. If a catalog fetch fails, a small fallback list is used so startup
-still works.
+still works. Configure `retry.discovery` (see [Retries](#retries)) to retry an
+unreachable catalog instead of falling back immediately; providers whose
+discovery ultimately failed are named in a session-start warning, since Pi
+silently substitutes models that are missing from the registered list.
+
+## Retries
+
+Two retry budgets are configurable in `.pi/surplus-intelligence.json`,
+globally and per provider:
+
+```json
+{
+  "retry": {
+    "discovery": { "maxAttempts": 5, "baseDelayMs": 1000, "maxDelayMs": 30000 },
+    "requests": { "maxAttempts": "infinite" }
+  },
+  "providers": {
+    "surplus-intelligence": {
+      "retry": { "requests": { "maxAttempts": 3 } }
+    }
+  }
+}
+```
+
+- `retry.discovery` covers the startup model-catalog fetch (`/v1/models`).
+  Default: a single attempt, then the fallback list. Retrying here matters
+  because a silent fallback can leave the session's configured model
+  unregistered, and Pi then substitutes another model (which may fail and
+  take the agent offline). `"maxAttempts": "infinite"` waits for the endpoint
+  indefinitely; startup blocks, with each retry logged to stderr.
+- `retry.requests` covers model requests that fail **before any assistant
+  output is exposed**. Default: 15 attempts (500 ms backoff doubling to a
+  60 s cap). With `"maxAttempts": "infinite"`, transient failures never
+  propagate to Pi, so Pi never falls back to another provider on its own —
+  the request rides out the outage (or your Ctrl+C). Permanent errors
+  (401/402/403/404) are never retried regardless of budget; an explicit Pi
+  cancellation always stops immediately.
+
+Each setting accepts `maxAttempts` (positive integer or `"infinite"`),
+`baseDelayMs`, and `maxDelayMs`; omitted fields keep the defaults. A
+per-provider `providers.<id>.retry` overrides the global `retry` per field.
+Config-file edits apply to new sessions without a restart.
+
+Caveat: Bu0y reserves the worst-case cost before running a fill, so its
+pre-output retries default to a single retry even when other providers get
+15. Setting `maxAttempts` explicitly overrides that cap for Bu0y too — each
+retry can be a fresh payment (the x402 `maxPerRequestUsdc`/`maxPerDayUsdc`
+limits still apply).
 
 ## Authentication
 
@@ -199,11 +246,13 @@ not count as failures. With no config file or an empty array, behavior is
 unchanged.
 
 For direct gateway requests that fail **before any assistant output is
-exposed**, the extension retries up to 15 times. Retries use capped exponential
-backoff (500 ms, 1 s, 2 s, …, capped at 60 s). This is deliberately generous
-for long-running Pi agents and workflows, while avoiding duplicated text or
-tool calls: once output has started, a failure is reported rather than retried.
-An explicit Pi cancellation stops immediately and is never retried.
+exposed**, the extension retries up to 15 times by default. Retries use capped
+exponential backoff (500 ms, 1 s, 2 s, …, capped at 60 s). This is deliberately
+generous for long-running Pi agents and workflows, while avoiding duplicated
+text or tool calls: once output has started, a failure is reported rather than
+retried. An explicit Pi cancellation stops immediately and is never retried.
+The budget is configurable — including `"maxAttempts": "infinite"` — via
+`retry.requests`; see [Retries](#retries).
 
 The active `/model` selection is never changed by this feature. This prevents
 conflicts with other extensions calling `pi.setModel` or executing separate
@@ -229,6 +278,14 @@ for (const provider of await createGatewayProviders()) {
 // With x402 wallet payments:
 await createGatewayProviders({
   payments: { wallet: process.env.X402_WALLET_KEY!, maxPerDayUsdc: 5 },
+});
+
+// With retry budgets (wins over the config file's `retry` section):
+await createGatewayProviders({
+  retry: {
+    discovery: { maxAttempts: 5 },
+    requests: { maxAttempts: Infinity }, // never surface transient failures
+  },
 });
 ```
 

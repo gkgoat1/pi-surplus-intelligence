@@ -44,7 +44,13 @@ import {
 	DECISIONS_API,
 	mapClassifierModel,
 } from "./src/classifiers.ts";
-import { resolveProviderCredentials, loadProvidersFileConfig, loadPaymentsFileConfig } from "./src/provider-config.ts";
+import {
+	resolveProviderCredentials,
+	loadProvidersFileConfig,
+	loadPaymentsFileConfig,
+	type RetryFileConfig,
+} from "./src/provider-config.ts";
+import { mergeRetrySettings, resolveDiscoveryPolicy, withRetries } from "./src/retry.ts";
 import { createGatewayStreamSimple, KEYLESS_SENTINEL } from "./src/stream.ts";
 import { createPayingFetch } from "./src/x402/hook.ts";
 import { DEFAULT_ALLOWED_HOSTS } from "./src/x402/payments.ts";
@@ -75,6 +81,13 @@ export type GatewayProvidersOptions = {
 	skipDiscovery?: boolean;
 	/** Directory holding `.pi/surplus-intelligence.json`; defaults to the user home. */
 	configDir?: string;
+	/**
+	 * Retry budgets for catalog discovery and requests; wins over the config
+	 * file's `retry` section. `"maxAttempts": "infinite"` (passed as
+	 * `Infinity`) retries forever, so a transient outage never surfaces as a
+	 * provider failure to the host. See src/retry.ts.
+	 */
+	retry?: RetryFileConfig;
 	/** Test seam: replace the pi-ai built-in stream imports. */
 	helpers?: StreamHelpers;
 };
@@ -159,8 +172,13 @@ export async function createGatewayProviders(
 ): Promise<Provider<Api>[]> {
 	const helpers = options.helpers ?? directHelpers();
 	const configDir = options.configDir ?? homedir();
-	const { providers: fileConfig } = loadProvidersFileConfig(configDir);
+	const { providers: fileConfig, retry: fileRetryConfig } = loadProvidersFileConfig(configDir);
 	const { payments: paymentsFileConfig } = loadPaymentsFileConfig(configDir);
+	const retryConfig = options.retry ?? fileRetryConfig;
+	const requestRetrySettings = (providerId: string) =>
+		mergeRetrySettings(retryConfig?.requests, fileConfig[providerId]?.retry?.requests);
+	const discoveryRetryPolicy = (providerId: string) =>
+		resolveDiscoveryPolicy(mergeRetrySettings(retryConfig?.discovery, fileConfig[providerId]?.retry?.discovery));
 
 	const paymentsOptions: GatewayPaymentsOptions | undefined =
 		options.payments ??
@@ -176,7 +194,7 @@ export async function createGatewayProviders(
 		? buildPayingFetch(paymentsOptions, paymentsOptions.ledgerPath)
 		: undefined;
 
-	const streamSimpleCore = createGatewayStreamSimple(helpers);
+	const streamSimpleCore = createGatewayStreamSimple(helpers, requestRetrySettings);
 	// With a wallet configured, every provider request goes through the paying
 	// fetch; without one, options pass through untouched.
 	const streamSimple = payingFetch
@@ -210,7 +228,10 @@ export async function createGatewayProviders(
 
 		if (!options.skipDiscovery && (apiKeyForDiscovery || descriptor.publicCatalog)) {
 			try {
-				const entries = await fetchCatalogEntries(descriptor, apiKeyForDiscovery);
+				const entries = await withRetries(
+					() => fetchCatalogEntries(descriptor, apiKeyForDiscovery),
+					discoveryRetryPolicy(descriptor.id),
+				);
 				const chatModels = entries
 					.map((entry) => mapGatewayModel(entry, descriptor))
 					.filter((model): model is any => model !== undefined)
@@ -253,7 +274,10 @@ export async function createGatewayProviders(
 				},
 				...(classifyImpl ? { classifiers: { [DECISIONS_API]: classifyImpl } } : {}),
 				fetchModels: async () => {
-					const entries = await fetchCatalogEntries(descriptor, apiKeyForDiscovery);
+					const entries = await withRetries(
+						() => fetchCatalogEntries(descriptor, apiKeyForDiscovery),
+						discoveryRetryPolicy(descriptor.id),
+					);
 					const chat = entries
 						.map((entry) => mapGatewayModel(entry, descriptor))
 						.filter((model): model is any => model !== undefined)

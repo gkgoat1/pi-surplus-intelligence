@@ -13,7 +13,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { PROVIDERS } from "./src/constants.ts";
-import { anthropicClaudeModels, fetchCatalogEntries, fetchModels, fallbackModels, mapGatewayModel } from "./src/models.ts";
+import { anthropicClaudeModels, fetchCatalogEntries, fallbackModels, mapGatewayModel, withProvider } from "./src/models.ts";
 import {
 	classifierFallbackModels,
 	createDecisionsClassifier,
@@ -24,7 +24,15 @@ import {
 	loadProvidersFileConfig,
 	loadPaymentsFileConfig,
 	resolveProviderCredentials,
+	type RetryFileConfig,
+	type RetryFileSettings,
 } from "./src/provider-config.ts";
+import {
+	mergeRetrySettings,
+	resolveDiscoveryPolicy,
+	withRetries,
+	type RetryPolicy,
+} from "./src/retry.ts";
 import { loadStreamHelpers } from "./src/loader.ts";
 import {
 	clearPreferredProviderStatus,
@@ -67,6 +75,10 @@ function notifyWithFlagMetadata(ui: { notify(message: string, type?: "info" | "w
 	ui.notify(message, "warning");
 }
 
+function formatAttempts(maxAttempts: number): string {
+	return maxAttempts === Infinity ? "∞" : String(maxAttempts);
+}
+
 export default async function (pi: ExtensionAPI) {
 	const helpers = await loadStreamHelpers().catch(() => undefined);
 	if (!helpers) {
@@ -75,13 +87,29 @@ export default async function (pi: ExtensionAPI) {
 		);
 	}
 
-	const { providers: fileConfig, diagnostics } = loadProvidersFileConfig(homedir());
+	const { providers: fileConfig, retry: fileRetryConfig, diagnostics } = loadProvidersFileConfig(homedir());
 	const { payments: paymentsFileConfig, diagnostics: paymentsDiagnostics } = loadPaymentsFileConfig(homedir());
 	for (const diagnostic of [...diagnostics, ...paymentsDiagnostics]) {
 		console.error(`pi-surplus-intelligence: ${diagnostic}`);
 	}
 
-	const streamSimple = createGatewayStreamSimple(helpers);
+	// Retry settings resolve per request through this holder so edits to the
+	// config file apply at the next session start without a restart.
+	let retryConfig: RetryFileConfig | undefined = fileRetryConfig;
+	let providerRetryConfigs: Record<string, RetryFileConfig | undefined> = Object.fromEntries(
+		Object.entries(fileConfig).map(([id, entry]) => [id, entry.retry]),
+	);
+	const requestRetrySettings = (providerId: string): RetryFileSettings | undefined =>
+		mergeRetrySettings(retryConfig?.requests, providerRetryConfigs[providerId]?.requests);
+	const discoveryRetryPolicy = (providerId: string): RetryPolicy =>
+		resolveDiscoveryPolicy(mergeRetrySettings(retryConfig?.discovery, providerRetryConfigs[providerId]?.discovery));
+
+	const streamSimple = createGatewayStreamSimple(helpers, requestRetrySettings);
+
+	// Providers whose catalog discovery exhausted its retry budget: their
+	// registered models are the small fallback list, so Pi may have silently
+	// substituted the session's configured model. Surfaced at session start.
+	const degradedProviders: string[] = [];
 
 	for (const descriptor of PROVIDERS) {
 		if (fileConfig[descriptor.id]?.enabled === false) continue;
@@ -100,12 +128,22 @@ export default async function (pi: ExtensionAPI) {
 		// docs/probe-results.md) are discovered without a key; keyed-only
 		// providers keep the old behavior of skipping discovery when keyless.
 		if (credentials.ok || descriptor.publicCatalog) {
+			const apiKey = credentials.ok ? credentials.apiKey : undefined;
+			const policy = discoveryRetryPolicy(descriptor.id);
+			const discover = () => fetchCatalogEntries(descriptor, apiKey);
 			try {
+				const entries = await withRetries(discover, policy, {
+					onRetry: ({ attempt, maxAttempts, delayMs, error }) => {
+						const detail = error instanceof Error ? error.message : String(error);
+						console.error(
+							`pi-surplus-intelligence: ${descriptor.name} catalog unreachable (attempt ${attempt}/${formatAttempts(maxAttempts)}); retrying in ${delayMs}ms: ${detail}`,
+						);
+					},
+				});
 				if (descriptor.supportsClassifiers && decisionsClassifier) {
 					// Decisions-rail entries (Jev) map to classifier models; the rest
 					// map to chat models. mapGatewayModel already skips decisions
 					// entries so they never register as broken chat models.
-					const entries = await fetchCatalogEntries(descriptor, credentials.ok ? credentials.apiKey : undefined);
 					const chatModels = entries
 						.map((entry) => mapGatewayModel(entry, descriptor))
 						.filter((model): model is any => model !== undefined);
@@ -115,10 +153,21 @@ export default async function (pi: ExtensionAPI) {
 					if (chatModels.length > 0) models = chatModels;
 					if (discoveredClassifiers.length > 0) classifierModels = discoveredClassifiers;
 				} else {
-					models = await fetchModels(descriptor, credentials.ok ? credentials.apiKey : undefined);
+					const mapped = entries
+						.map((entry) => mapGatewayModel(entry, descriptor))
+						.filter((model): model is any => model !== undefined)
+						.map((model) => withProvider(model, descriptor));
+					if (mapped.length > 0) models = mapped;
 				}
-			} catch {
-				// Keep fallback models if discovery fails so startup doesn't break.
+			} catch (error) {
+				// Keep fallback models if discovery fails so startup doesn't break —
+				// but say so loudly: Pi silently substitutes models that are missing
+				// from the registered list, which can take an agent offline.
+				const detail = error instanceof Error ? error.message : String(error);
+				console.error(
+					`pi-surplus-intelligence: ${descriptor.name} catalog discovery failed after ${formatAttempts(policy.maxAttempts)} attempt(s); registering ${models.length} fallback model(s). The session's configured model may be unavailable. Set retry.discovery in .pi/surplus-intelligence.json to retry. Error: ${detail}`,
+				);
+				degradedProviders.push(descriptor.name);
 			}
 		}
 
@@ -179,6 +228,22 @@ export default async function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", (_event, ctx) => {
+		// Reload retry config so file edits apply to this session's requests.
+		const reloaded = loadProvidersFileConfig(homedir());
+		retryConfig = reloaded.retry;
+		providerRetryConfigs = Object.fromEntries(
+			Object.entries(reloaded.providers).map(([id, entry]) => [id, entry.retry]),
+		);
+		for (const diagnostic of reloaded.diagnostics) {
+			console.error(`pi-surplus-intelligence: ${diagnostic}`);
+		}
+		if (degradedProviders.length > 0) {
+			notifyWithFlagMetadata(
+				ctx.ui,
+				`Catalog discovery failed for: ${degradedProviders.join(", ")}. Only fallback models were registered; Pi may have substituted your configured model. Fix connectivity (or set retry.discovery) and restart.`,
+				"discovery",
+			);
+		}
 		const [preferredDiagnostic, compressionDiagnostic] = [
 			configurePreferredProviders({
 				sessionId: ctx.sessionManager.getSessionId(),
